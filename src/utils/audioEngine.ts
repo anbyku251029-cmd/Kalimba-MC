@@ -133,15 +133,21 @@ class KalimbaAudioEngine {
     }
   }
 
+  public getCurrentTime(): number {
+    return this.ctx ? this.ctx.currentTime : 0;
+  }
+
   /**
-   * Synthesize a warm, realistic Kalimba chime sound with selected timbre
+   * 실제 17음 C Major 칼림바의 어쿠스틱 물리 특성을 반영한 합성음을 정밀 스케줄링 발음합니다.
+   * scheduledTime이 주어지면 Web Audio API 하드웨어 타임라인에 미래 발음 예약합니다.
    */
   public playNote(
     pitch: string,
     durationBeats: number = 1,
     tempoBpm: number = 80,
     speedMultiplier: number = 1.0,
-    timbreOverride?: KalimbaTimbreMode
+    timbreOverride?: KalimbaTimbreMode,
+    scheduledTime?: number
   ) {
     if (this.isMuted) return;
     this.initContext();
@@ -150,85 +156,114 @@ class KalimbaAudioEngine {
     const keyDef = PITCH_TO_KEY.get(pitch);
     if (!keyDef) return;
 
-    const now = this.ctx.currentTime;
+    // 예약 시각 결정 (과거 시각이면 현재 시각으로 클램핑)
+    const startTime = scheduledTime !== undefined ? Math.max(this.ctx.currentTime, scheduledTime) : this.ctx.currentTime;
     const baseFreq = keyDef.frequency;
     const timbre = timbreOverride || this.settings.timbre;
 
-    // Timbre parameters
+    // 음색 파라미터 (default / bright / soft)
     const isBright = timbre === 'bright';
     const isSoft = timbre === 'soft';
 
-    // Calculate sustain time based on pitch and note duration
-    // Lower notes ring longer, higher notes decay faster
+    // 17키 칼림바 물리적 감쇠 특성:
+    // 낮은 음(C4~G4)은 쇠막대가 길어 서스테인이 길고 깊게 울림 (최대 2.4초)
+    // 높은 음(C6~E6)은 쇠막대가 짧아 감쇠가 빠르고 맑고 또랑또랑함 (최소 0.65초)
+    const keyRatio = keyDef.index / 16; // 0 (D6) ~ 16 (E6)
+    const isHighPitch = keyDef.octaveLevel >= 1;
+
     const baseSustain = isSoft
-      ? Math.max(0.8, 2.5 - (keyDef.index / 16) * 1.3)
-      : Math.max(0.6, 2.2 - (keyDef.index / 16) * 1.2);
+      ? Math.max(0.7, 2.4 - (isHighPitch ? 1.3 : 0.6))
+      : isBright
+      ? Math.max(0.55, 2.0 - (isHighPitch ? 1.1 : 0.5))
+      : Math.max(0.65, 2.2 - (isHighPitch ? 1.2 : 0.5));
 
-    const beatSeconds = (60 / tempoBpm) * (1 / speedMultiplier);
-    const holdDuration = Math.min(baseSustain, durationBeats * beatSeconds * 1.4);
+    const beatSeconds = (60 / Math.max(1, tempoBpm)) * (1 / Math.max(0.1, speedMultiplier));
+    const holdDuration = Math.min(baseSustain, Math.max(0.3, durationBeats * beatSeconds * 1.35));
 
-    // 1. Fundamental Oscillator (Warm sine body)
+    // 1. 기음 오실레이터 (Fundamental Sine)
     const osc1 = this.ctx.createOscillator();
     osc1.type = 'sine';
-    const pitchDeflectionCents = isBright ? 1.016 : isSoft ? 1.008 : 1.012;
-    osc1.frequency.setValueAtTime(baseFreq * pitchDeflectionCents, now);
-    osc1.frequency.exponentialRampToValueAtTime(baseFreq, now + (isBright ? 0.018 : 0.012));
 
-    // 2. High Metallic Overtone (Typical clamped-free bar overtone ~5.4x)
+    // 피치 디플렉션: 탄현 직후 순간 텐션 벤딩 (고음은 과도한 피치 벤드 방지)
+    const bendFactor = isHighPitch
+      ? isBright ? 1.008 : isSoft ? 1.003 : 1.005
+      : isBright ? 1.018 : isSoft ? 1.008 : 1.014;
+
+    osc1.frequency.setValueAtTime(baseFreq * bendFactor, startTime);
+    osc1.frequency.exponentialRampToValueAtTime(baseFreq, startTime + (isHighPitch ? 0.008 : 0.015));
+
+    // 2. 비조화 고차 배음 오실레이터 (Metallic Inharmonic Overtone ~5.4x)
+    // 쇠막대의 물리 고유 진동 배음 (clamped-free bar overtone)
     const osc2 = this.ctx.createOscillator();
     osc2.type = 'sine';
     const overtoneFreq = baseFreq * 5.4;
-    if (overtoneFreq < this.ctx.sampleRate / 2 - 100) {
-      osc2.frequency.setValueAtTime(overtoneFreq, now);
+    const nyquistLimit = this.ctx.sampleRate / 2 - 200;
+
+    if (overtoneFreq < nyquistLimit) {
+      osc2.frequency.setValueAtTime(overtoneFreq, startTime);
     } else {
-      osc2.frequency.setValueAtTime(baseFreq * 2, now);
+      osc2.frequency.setValueAtTime(baseFreq * 2.0, startTime);
     }
 
-    // 3. Attack Transient (Simulating fingernail / thumb pluck against steel tine)
-    const bufferSize = Math.floor(this.ctx.sampleRate * (isSoft ? 0.012 : isBright ? 0.024 : 0.018));
+    // 3. 손톱 탄현 어택 트랜지언트 (Pluck Transient Noise)
+    const noiseDuration = isSoft ? 0.01 : isBright ? 0.022 : 0.016;
+    const bufferSize = Math.max(64, Math.floor(this.ctx.sampleRate * noiseDuration));
     const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const output = noiseBuffer.getChannelData(0);
+    const noiseData = noiseBuffer.getChannelData(0);
+
     for (let i = 0; i < bufferSize; i++) {
-      output[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.22));
+      // 감쇠형 백색 잡음으로 손톱/골무가 쇠막대를 튕기는 찰나의 마찰음 시뮬레이션
+      noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
     }
+
     const noiseSource = this.ctx.createBufferSource();
     noiseSource.buffer = noiseBuffer;
 
     const noiseFilter = this.ctx.createBiquadFilter();
     noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.setValueAtTime(Math.min(3200, baseFreq * (isBright ? 3.5 : 2.8)), now);
-    noiseFilter.Q.setValueAtTime(isBright ? 4.0 : 2.5, now);
+    const filterCenter = Math.min(3600, baseFreq * (isBright ? 3.5 : 2.6));
+    noiseFilter.frequency.setValueAtTime(filterCenter, startTime);
+    noiseFilter.Q.setValueAtTime(isBright ? 3.5 : 2.2, startTime);
 
     const noiseGain = this.ctx.createGain();
-    const noiseLevel = isSoft ? 0.04 : isBright ? 0.12 : 0.08;
-    noiseGain.gain.setValueAtTime(noiseLevel, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.0001, now + (isSoft ? 0.012 : 0.02));
+    const noiseLevel = isSoft ? 0.035 : isBright ? 0.11 : 0.07;
+    noiseGain.gain.setValueAtTime(0.0001, startTime);
+    noiseGain.gain.linearRampToValueAtTime(noiseLevel, startTime + 0.002);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, startTime + noiseDuration);
 
     noiseSource.connect(noiseFilter);
     noiseFilter.connect(noiseGain);
     noiseGain.connect(this.masterGain);
 
-    // Fundamental Envelope (with high-pitch energy smoothing)
+    // 4. 기음 엔벌로프 (Fundamental Gain ADSR)
     const gain1 = this.ctx.createGain();
-    gain1.gain.setValueAtTime(0.0001, now);
-    const peakVolume = isBright ? 0.68 : isSoft ? 0.6 : 0.65;
-    gain1.gain.linearRampToValueAtTime(peakVolume, now + 0.004);
-    gain1.gain.exponentialRampToValueAtTime(0.2, now + holdDuration * 0.38);
-    gain1.gain.exponentialRampToValueAtTime(0.0001, now + holdDuration);
+    gain1.gain.setValueAtTime(0.0001, startTime);
 
-    // Overtone Envelope (metallic sparkle)
+    // 클릭 방지 초고속 선형 어택 (0.0035초)
+    const peakVolume = isBright ? 0.68 : isSoft ? 0.58 : 0.64;
+    gain1.gain.linearRampToValueAtTime(peakVolume, startTime + 0.0035);
+    // 자연스러운 초기 감쇠 후 긴 서스테인 테일
+    gain1.gain.exponentialRampToValueAtTime(peakVolume * 0.35, startTime + holdDuration * 0.35);
+    gain1.gain.exponentialRampToValueAtTime(0.0001, startTime + holdDuration);
+
+    // 5. 금속 배음 엔벌로프 (고음역 배음 과다 방지)
     const gain2 = this.ctx.createGain();
-    gain2.gain.setValueAtTime(0.0001, now);
-    const overtoneLevel = isSoft ? 0.1 : isBright ? 0.35 : 0.22;
-    gain2.gain.linearRampToValueAtTime(overtoneLevel, now + 0.003);
-    gain2.gain.exponentialRampToValueAtTime(0.0001, now + Math.min(0.28, holdDuration * 0.3));
+    gain2.gain.setValueAtTime(0.0001, startTime);
 
-    // Wooden Body Resonator Filter (simulates the wooden soundbox cavity)
+    const baseOvertone = isSoft ? 0.08 : isBright ? 0.32 : 0.2;
+    // 고음역(E5~E6)에서는 배음이 너무 튀지 않도록 스케일링
+    const overtoneLevel = baseOvertone * (1.0 - keyRatio * 0.45);
+
+    gain2.gain.linearRampToValueAtTime(overtoneLevel, startTime + 0.0025);
+    gain2.gain.exponentialRampToValueAtTime(0.0001, startTime + Math.min(0.25, holdDuration * 0.28));
+
+    // 6. 우든 바디 레조네이터 (Wooden Soundbox Cavity Resonance)
     const bodyFilter = this.ctx.createBiquadFilter();
     bodyFilter.type = 'peaking';
-    bodyFilter.frequency.setValueAtTime(isSoft ? 420 : 460, now);
-    bodyFilter.Q.setValueAtTime(isSoft ? 2.0 : 1.4, now);
-    bodyFilter.gain.setValueAtTime(isSoft ? 4.5 : isBright ? 1.8 : 3.0, now);
+    // 중앙 C4(가운데 도) 부근 공명 피크 (430~460Hz)
+    bodyFilter.frequency.setValueAtTime(isSoft ? 420 : 450, startTime);
+    bodyFilter.Q.setValueAtTime(isSoft ? 2.2 : 1.6, startTime);
+    bodyFilter.gain.setValueAtTime(isSoft ? 4.0 : isBright ? 1.6 : 2.8, startTime);
 
     osc1.connect(gain1);
     gain1.connect(bodyFilter);
@@ -242,40 +277,48 @@ class KalimbaAudioEngine {
     }
 
     try {
-      noiseSource.start(now);
-      osc1.start(now);
-      osc2.start(now);
+      noiseSource.start(startTime);
+      osc1.start(startTime);
+      osc2.start(startTime);
 
-      const stopTime = now + holdDuration + 0.05;
-      noiseSource.stop(now + 0.025);
+      const stopTime = startTime + holdDuration + 0.05;
+      noiseSource.stop(startTime + noiseDuration + 0.01);
       osc1.stop(stopTime);
       osc2.stop(stopTime);
 
       const voice = {
         stop: () => {
           try {
-            gain1.gain.cancelScheduledValues(this.ctx?.currentTime || 0);
-            gain1.gain.setValueAtTime(gain1.gain.value, this.ctx?.currentTime || 0);
-            gain1.gain.exponentialRampToValueAtTime(0.0001, (this.ctx?.currentTime || 0) + 0.02);
+            const stopNow = this.ctx?.currentTime || 0;
+            gain1.gain.cancelScheduledValues(stopNow);
+            gain1.gain.setValueAtTime(Math.max(0.0001, gain1.gain.value), stopNow);
+            gain1.gain.exponentialRampToValueAtTime(0.0001, stopNow + 0.018);
+
+            gain2.gain.cancelScheduledValues(stopNow);
+            gain2.gain.setValueAtTime(Math.max(0.0001, gain2.gain.value), stopNow);
+            gain2.gain.exponentialRampToValueAtTime(0.0001, stopNow + 0.018);
+
             setTimeout(() => {
               try {
                 osc1.stop();
                 osc2.stop();
+                noiseSource.stop();
               } catch {
-                // already stopped
+                // 이미 정지된 오실레이터 예외 무시
               }
-            }, 30);
+            }, 25);
           } catch {
-            // ignore
+            // 정리 중 오류 무시
           }
         },
       };
 
       this.activeVoices.push(voice);
+      const lifetimeMs = Math.max(100, (startTime - this.ctx.currentTime + holdDuration + 0.1) * 1000);
       setTimeout(() => {
         const idx = this.activeVoices.indexOf(voice);
         if (idx !== -1) this.activeVoices.splice(idx, 1);
-      }, (holdDuration + 0.1) * 1000);
+      }, lifetimeMs);
     } catch (e) {
       console.warn('Audio playback error', e);
     }

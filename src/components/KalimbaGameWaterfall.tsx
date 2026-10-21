@@ -1,20 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { KALIMBA_KEYS, KalimbaKeyDef, PITCH_TO_KEY } from '../constants/kalimbaKeys';
 import { Song } from '../types/music';
 import { audioEngine } from '../utils/audioEngine';
+import { calculateSongTimeline, TimedNoteItem, INITIAL_LEAD_IN_BEATS } from '../utils/musicTiming';
 
-interface FallingNoteItem {
-  id: string;
-  noteIndex: number;
-  pitch: string;
-  numberNotation: string;
-  keyIndex: number;
-  beatTime: number; // in beats from start of song
-  duration: number;
-  color: 'orange' | 'green' | 'blue' | 'teal';
-}
+type FallingNoteItem = TimedNoteItem;
 
-interface KalimbaGameWaterfallProps {
+export interface KalimbaGameWaterfallProps {
   song: Song;
   difficulty: string; // '보통' | '쉬움' | '어려움'
   speedPercent: number;
@@ -26,8 +18,6 @@ interface KalimbaGameWaterfallProps {
   onChangeDifficulty: (difficulty: string) => void;
   onSongComplete?: () => void;
 }
-
-const INITIAL_LEAD_IN_BEATS = -2.0;
 
 export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
   song,
@@ -65,55 +55,28 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
   const difficultyRef = useRef<string>(difficulty);
   difficultyRef.current = difficulty;
 
-  // Build falling notes stream from the beginning of the song (excluding rests from visual blocks while preserving their beat timing)
-  const fallingNotes: FallingNoteItem[] = React.useMemo(() => {
-    let accumulatedBeats = 0.0;
-    const items: FallingNoteItem[] = [];
+  // 단일 기준 공통 음악 타임라인 계산 (BPM, 음표 길이, 쉼표, 속도 완벽 일치)
+  const timeline = useMemo(
+    () => calculateSongTimeline(song, speedPercent),
+    [song, speedPercent]
+  );
 
-    song.notes.forEach((note) => {
-      if (note.isRest || note.pitch === 'REST') {
-        accumulatedBeats += note.duration;
-        return;
-      }
-
-      const key = PITCH_TO_KEY.get(note.pitch);
-      const keyIndex = key ? key.index : 8;
-
-      let color: 'orange' | 'green' | 'blue' | 'teal' = 'orange';
-      if (note.pitch.startsWith('E')) {
-        color = 'green';
-      } else if (note.pitch.startsWith('G')) {
-        color = 'blue';
-      } else if (note.pitch.startsWith('D')) {
-        color = 'orange';
-      } else if (note.pitch.startsWith('C')) {
-        color = 'orange';
-      } else if (note.pitch.startsWith('F')) {
-        color = 'teal';
-      } else {
-        color = 'blue';
-      }
-
-      const playableNoteIndex = items.length;
-      items.push({
-        id: `note-${playableNoteIndex}-${note.pitch}`,
-        noteIndex: playableNoteIndex,
-        pitch: note.pitch,
-        numberNotation: key ? key.numberNotation : '1',
-        keyIndex,
-        beatTime: accumulatedBeats,
-        duration: note.duration,
-        color,
-      });
-
-      accumulatedBeats += note.duration;
-    });
-
-    return items;
-  }, [song]);
-
-  const totalNotes = fallingNotes.length > 0 ? fallingNotes.length : 1;
+  const fallingNotes: FallingNoteItem[] = timeline.playableItems;
+  const totalNotes = timeline.totalPlayableNotes > 0 ? timeline.totalPlayableNotes : 1;
   const progressPercent = Math.min(100, Math.round((completedNoteCount / totalNotes) * 100));
+
+  // 일시정지 및 언마운트 시 활성 보이스 및 잔향 정리
+  useEffect(() => {
+    if (!isPlaying) {
+      audioEngine.stopAll();
+    }
+  }, [isPlaying]);
+
+  useEffect(() => {
+    return () => {
+      audioEngine.stopAll();
+    };
+  }, []);
 
   // Sound and glowing tine trigger
   const triggerKey = useCallback(
@@ -192,8 +155,7 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         setCompletedNoteCount(newlyCompleted);
 
         // Song end check: wait until the final note finishes ringing before showing completion modal
-        const lastNote = fallingNotes[fallingNotes.length - 1];
-        const endBeatThreshold = lastNote ? lastNote.beatTime + Math.max(2.0, lastNote.duration + 1.0) : 2.0;
+        const endBeatThreshold = timeline.audibleEndBeat;
         if (!hasCompletedRef.current && nextBeat > endBeatThreshold) {
           hasCompletedRef.current = true;
           if (onSongComplete) onSongComplete();
@@ -210,7 +172,7 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [fallingNotes, onSongComplete, song.tempoBpm, triggerKey]);
+  }, [fallingNotes, onSongComplete, song.tempoBpm, triggerKey, timeline.audibleEndBeat]);
 
   // Number keys (1-7) support for intuitive playing
   useEffect(() => {
