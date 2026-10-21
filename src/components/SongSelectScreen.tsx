@@ -4,6 +4,7 @@ import { Song } from '../types/music';
 import { HymnEditorModal } from './HymnEditorModal';
 import { SoundSettingsModal } from './SoundSettingsModal';
 import { ValidationReportModal } from './ValidationReportModal';
+import { StepLearningModal } from './StepLearningModal';
 import { audioEngine } from '../utils/audioEngine';
 
 interface SongSelectScreenProps {
@@ -37,6 +38,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   const [isHymnModalOpen, setIsHymnModalOpen] = useState<boolean>(false);
   const [isSoundSettingsOpen, setIsSoundSettingsOpen] = useState<boolean>(false);
   const [isValidationModalOpen, setIsValidationModalOpen] = useState<boolean>(false);
+  const [learningSong, setLearningSong] = useState<Song | null>(null);
   const [editingHymn, setEditingHymn] = useState<Song | null>(null);
 
   // 미리 듣기 상태 관리
@@ -515,12 +517,12 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
                     </div>
                   </div>
 
-                  {/* Bottom: Preview & Play Buttons */}
-                  <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between gap-2">
+                  {/* Bottom: Preview, Step Learning & Play Buttons */}
+                  <div className="mt-4 pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5">
                     <button
                       type="button"
                       onClick={(e) => handleTogglePreview(e, song)}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer border ${
+                      className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 transition cursor-pointer border ${
                         isPreviewing
                           ? 'bg-amber-400 text-amber-950 border-amber-300 animate-pulse font-black'
                           : 'bg-white/8 hover:bg-white/15 text-white/85 hover:text-white border-white/15'
@@ -541,11 +543,24 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
                     </button>
 
                     <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLearningSong(song);
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-400/40 text-xs font-bold flex items-center space-x-1 transition cursor-pointer"
+                      title="어린이 5단계 맞춤 학습 열기"
+                    >
+                      <span>🌱</span>
+                      <span>단계별 학습</span>
+                    </button>
+
+                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleStartPractice(song, songDifficulty);
                       }}
-                      className={`px-4 py-2 rounded-xl font-black text-xs sm:text-sm flex items-center space-x-1.5 transition cursor-pointer active:scale-95 ${
+                      className={`px-3.5 py-1.5 rounded-xl font-black text-xs sm:text-sm flex items-center space-x-1.5 transition cursor-pointer active:scale-95 ${
                         isHymn
                           ? 'bg-linear-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-[#141036] shadow-[0_0_12px_rgba(251,191,36,0.4)]'
                           : 'bg-linear-to-r from-cyan-400 to-sky-500 hover:from-cyan-300 hover:to-sky-400 text-[#0c0827] shadow-[0_0_12px_rgba(34,211,238,0.4)]'
@@ -639,6 +654,26 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
       {/* Music Validation Report Modal */}
       {isValidationModalOpen && (
         <ValidationReportModal songs={songs} onClose={() => setIsValidationModalOpen(false)} />
+      )}
+
+      {/* Step Learning Modal */}
+      {learningSong && (
+        <StepLearningModal
+          song={learningSong}
+          onClose={() => setLearningSong(null)}
+          onStartFullPractice={(s, speed) => {
+            setLearningSong(null);
+            const songDifficulty: '쉬움' | '보통' | '어려움' | '찬송가' =
+              s.level === 'beginner'
+                ? '쉬움'
+                : s.level === 'advanced'
+                ? '어려움'
+                : s.level === 'hymn'
+                ? '찬송가'
+                : '보통';
+            onSelectSong(s, songDifficulty);
+          }}
+        />
       )}
     </div>
   );
