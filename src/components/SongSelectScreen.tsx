@@ -1,7 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Music, Play, Sparkles, CheckCircle2, ChevronRight, Plus, Edit3, Search } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { Music, Play, Sparkles, CheckCircle2, ChevronRight, Plus, Edit3, Search, Volume2, Square, Sliders } from 'lucide-react';
 import { Song } from '../types/music';
 import { HymnEditorModal } from './HymnEditorModal';
+import { SoundSettingsModal } from './SoundSettingsModal';
+import { audioEngine } from '../utils/audioEngine';
 
 interface SongSelectScreenProps {
   songs: Song[];
@@ -32,7 +34,59 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   const [activeTab, setActiveTab] = useState<TabType>('쉬움');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isHymnModalOpen, setIsHymnModalOpen] = useState<boolean>(false);
+  const [isSoundSettingsOpen, setIsSoundSettingsOpen] = useState<boolean>(false);
   const [editingHymn, setEditingHymn] = useState<Song | null>(null);
+
+  // 미리 듣기 상태 관리
+  const [previewSongId, setPreviewSongId] = useState<string | null>(null);
+  const previewTimerRef = useRef<number[]>([]);
+
+  const stopPreview = () => {
+    previewTimerRef.current.forEach((t) => clearTimeout(t));
+    previewTimerRef.current = [];
+    audioEngine.stopAll();
+    setPreviewSongId(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      stopPreview();
+    };
+  }, []);
+
+  const handleTogglePreview = (e: React.MouseEvent, song: Song) => {
+    e.stopPropagation();
+
+    if (previewSongId === song.id) {
+      stopPreview();
+      return;
+    }
+
+    stopPreview();
+    setPreviewSongId(song.id);
+    audioEngine.ensureReady();
+
+    const playableNotes = song.notes.slice(0, 16);
+    let accumulatedBeats = 0;
+    const beatSeconds = 60 / song.tempoBpm;
+
+    playableNotes.forEach((n) => {
+      if (!n.isRest && n.pitch !== 'REST') {
+        const delayMs = accumulatedBeats * beatSeconds * 1000;
+        const timerId = window.setTimeout(() => {
+          audioEngine.playNote(n.pitch, n.duration, song.tempoBpm, 1.0);
+        }, delayMs);
+        previewTimerRef.current.push(timerId);
+      }
+      accumulatedBeats += n.duration;
+    });
+
+    const totalMs = accumulatedBeats * beatSeconds * 1000 + 400;
+    const endTimer = window.setTimeout(() => {
+      setPreviewSongId(null);
+    }, totalMs);
+    previewTimerRef.current.push(endTimer);
+  };
 
   const counts = useMemo(() => {
     return {
@@ -136,6 +190,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   ];
 
   const handleStartPractice = (song: Song, diffOverride?: '쉬움' | '보통' | '어려움' | '찬송가') => {
+    stopPreview();
     const diff: '쉬움' | '보통' | '어려움' | '찬송가' =
       diffOverride ||
       (activeTab === '전체'
@@ -151,12 +206,14 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   };
 
   const handleOpenAddHymn = () => {
+    stopPreview();
     setEditingHymn(null);
     setIsHymnModalOpen(true);
   };
 
   const handleOpenEditHymn = (e: React.MouseEvent, song: Song) => {
     e.stopPropagation();
+    stopPreview();
     setEditingHymn(song);
     setIsHymnModalOpen(true);
   };
@@ -197,8 +254,16 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
             </div>
           </div>
 
-          {/* Quick Stats & Hymn Update Button */}
+          {/* Quick Stats, Sound Settings & Hymn Update Buttons */}
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => setIsSoundSettingsOpen(true)}
+              className="px-3.5 py-2 rounded-2xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/60 text-cyan-200 text-xs sm:text-sm font-bold flex items-center space-x-1.5 shadow-[0_0_15px_rgba(34,211,238,0.25)] transition cursor-pointer active:scale-95"
+            >
+              <Sliders className="w-4 h-4 text-cyan-300 stroke-[2.5]" />
+              <span>사운드 / 음색 설정</span>
+            </button>
+
             <button
               onClick={() => {
                 setActiveTab('찬송가');
@@ -223,7 +288,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
           </div>
         </header>
 
-        {/* 4 Category Tabs: [쉬움 30곡] [보통 30곡] [어려움 30곡] [찬송가] */}
+        {/* 4 Category Tabs */}
         <div>
           <div className="flex items-center justify-between mb-2.5">
             <h2 className="text-base sm:text-lg font-bold text-cyan-100 flex items-center space-x-1.5">
@@ -334,6 +399,8 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
               const isCompleted = completedSongIds.includes(song.id);
               const isHymn = song.level === 'hymn';
               const isHighlighted = song.id === 'beginner-4' || song.id === 'hymn-305';
+              const isPreviewing = previewSongId === song.id;
+
               const songDifficulty: '쉬움' | '보통' | '어려움' | '찬송가' =
                 activeTab === '전체'
                   ? song.level === 'beginner'
@@ -346,6 +413,9 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
                   : activeTab;
 
               const playableCount = song.notes.filter((n) => !n.isRest && n.pitch !== 'REST').length;
+              const totalBeats = song.notes.reduce((acc, n) => acc + (n.duration || 0), 0);
+              const totalSec = Math.round((totalBeats / song.tempoBpm) * 60);
+              const formattedDuration = totalSec >= 60 ? `${Math.floor(totalSec / 60)}분 ${totalSec % 60}초` : `${totalSec}초`;
 
               return (
                 <div
@@ -415,10 +485,13 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
                       </div>
                     </div>
 
-                    {/* Song Specs: Note count, Tempo, Tags */}
+                    {/* Song Specs: Note count, Tempo, Duration */}
                     <div className="flex flex-wrap items-center gap-1.5 mt-2.5 text-xs text-white/70">
                       <span className="bg-white/10 px-2 py-0.5 rounded-md font-bold text-cyan-200">
                         총 {playableCount}음
+                      </span>
+                      <span className="bg-white/10 px-2 py-0.5 rounded-md font-bold text-white/80">
+                        ⏱️ {formattedDuration}
                       </span>
                       <span className="bg-white/10 px-2 py-0.5 rounded-md font-bold text-white/80">
                         {song.tempoBpm} BPM
@@ -431,11 +504,31 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
                     </div>
                   </div>
 
-                  {/* Bottom: Play Button */}
-                  <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
-                    <span className={`text-xs font-bold ${isHymn ? 'text-amber-300/90' : 'text-cyan-300/80'}`}>
-                      {isHymn ? '찬송가 연주' : `${songDifficulty} 모드로 연주`}
-                    </span>
+                  {/* Bottom: Preview & Play Buttons */}
+                  <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => handleTogglePreview(e, song)}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center space-x-1 transition cursor-pointer border ${
+                        isPreviewing
+                          ? 'bg-amber-400 text-amber-950 border-amber-300 animate-pulse font-black'
+                          : 'bg-white/8 hover:bg-white/15 text-white/80 hover:text-white border-white/15'
+                      }`}
+                      title={isPreviewing ? '미리 듣기 정지' : '앞부분 소리 미리 듣기'}
+                    >
+                      {isPreviewing ? (
+                        <>
+                          <Square className="w-3.5 h-3.5 fill-current" />
+                          <span>정지</span>
+                        </>
+                      ) : (
+                        <>
+                          <Volume2 className="w-3.5 h-3.5 text-cyan-300" />
+                          <span>미리 듣기</span>
+                        </>
+                      )}
+                    </button>
+
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -457,16 +550,16 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
           </div>
         </div>
 
-        {/* Helpful Tips Card for Kids & Parents */}
+        {/* Helpful Tips Card */}
         <div className="bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 text-cyan-100 text-xs sm:text-sm">
           <div className="flex items-center space-x-3">
             <span className="text-3xl">💡</span>
             <div>
               <strong className="text-white block font-bold text-sm sm:text-base">
-                찬송가 업데이트 팁: 우측 상단 [찬송가 업데이트 / 추가] 버튼으로 원하는 찬송가를 계속 추가하세요!
+                사운드 설정 안내: 상단 [사운드 / 음색 설정]으로 나만의 칼림바 소리를 맞춰보세요!
               </strong>
               <span className="text-cyan-200/70 font-sans">
-                칼림바 숫자 악보(1 2 3 5 1&apos;)나 계이름(도 레 미 솔 도&apos;)만 적어 넣으면 자동으로 17키 폭포수 리듬 악보가 만들어집니다.
+                기본 칼림바, 맑은 크리스탈, 포근한 목재 울림 등 3가지 음색과 공간감 잔향을 실시간으로 변경할 수 있습니다.
               </span>
             </div>
           </div>
@@ -493,6 +586,11 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
             setEditingHymn(null);
           }}
         />
+      )}
+
+      {/* Sound Settings Modal */}
+      {isSoundSettingsOpen && (
+        <SoundSettingsModal onClose={() => setIsSoundSettingsOpen(false)} />
       )}
     </div>
   );
