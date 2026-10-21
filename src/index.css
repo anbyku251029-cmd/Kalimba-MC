@@ -21,3 +21,30 @@ body {
   overflow-x: hidden;
   user-select: none;
 }
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0c0827;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #312e81;
+  border-radius: 9999px;
+  border: 2px solid #0c0827;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #06b6d4;
+}
+
+html {
+  scrollbar-color: #312e81 #0c0827;
+  scrollbar-width: thin;
+  scroll-behavior: smooth;
+}
+

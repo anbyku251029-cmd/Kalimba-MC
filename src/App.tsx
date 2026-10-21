@@ -141,7 +141,7 @@ export default function App() {
   }, [currentScreen, handleExitPractice, handleRestart, handleTogglePlay]);
 
   return (
-    <div className="w-full h-screen bg-[#0c0827] overflow-hidden">
+    <div className="w-full min-h-screen bg-[#0c0827] overflow-y-auto overflow-x-hidden">
       {currentScreen === 'select' ? (
         /* First Screen: Select song divided by 쉬움(30곡), 보통(30곡), 어려움(30곡), 찬송가 */
         <SongSelectScreen

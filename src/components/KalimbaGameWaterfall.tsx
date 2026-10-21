@@ -275,7 +275,7 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
   const STRIKE_LINE_Y_PERCENT = 54; // strike line position: 54% from top
 
   return (
-    <div className="relative w-full h-screen max-h-screen bg-[#0c0827] text-white flex flex-col justify-between overflow-hidden select-none font-['Jua',sans-serif]">
+    <div className="relative w-full min-h-[680px] min-h-screen bg-[#0c0827] text-white flex flex-col justify-between overflow-y-auto overflow-x-hidden select-none font-['Jua',sans-serif]">
       {/* Deep Space Indigo Radial Gradient Background */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,#191244_0%,#0c0827_85%)] pointer-events-none" />
 
