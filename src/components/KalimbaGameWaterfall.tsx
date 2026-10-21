@@ -342,12 +342,54 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
 
         {/* Right: Speed Slider & Yellow Exit Squircle */}
         <div className="flex items-center space-x-4 sm:space-x-6">
-          {/* Speed Slider */}
-          <div className="hidden md:flex flex-col items-center">
-            <span className="text-sm sm:text-base font-bold text-white mb-1.5 drop-shadow-md">
-              속도: {speedPercent}%
-            </span>
-            <div className="w-36 sm:w-44 relative flex items-center">
+          {/* Speed Slider & Quick Presets */}
+          <div className="flex flex-col items-center">
+            <div className="flex items-center space-x-1 mb-1">
+              <span className="text-xs sm:text-sm font-bold text-white drop-shadow-md">
+                속도: <strong className="text-cyan-300">{speedPercent}%</strong>
+              </span>
+            </div>
+            {/* Quick Presets for Kids */}
+            <div className="flex items-center space-x-1 mb-1.5">
+              <button
+                type="button"
+                onClick={() => onChangeSpeed(70)}
+                className={`px-2 py-0.5 rounded-full text-[11px] font-bold transition cursor-pointer border ${
+                  speedPercent === 70
+                    ? 'bg-amber-400 text-amber-950 border-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.5)] font-black'
+                    : 'bg-white/10 text-white/80 hover:bg-white/20 border-white/20'
+                }`}
+                title="천천히 연습하기 (70%)"
+              >
+                🐢 70%
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeSpeed(100)}
+                className={`px-2 py-0.5 rounded-full text-[11px] font-bold transition cursor-pointer border ${
+                  speedPercent === 100
+                    ? 'bg-cyan-400 text-[#0c0827] border-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.5)] font-black'
+                    : 'bg-white/10 text-white/80 hover:bg-white/20 border-white/20'
+                }`}
+                title="보통 속도로 연습하기 (100%)"
+              >
+                🐰 100%
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeSpeed(120)}
+                className={`px-2 py-0.5 rounded-full text-[11px] font-bold transition cursor-pointer border ${
+                  speedPercent === 120
+                    ? 'bg-emerald-400 text-emerald-950 border-emerald-300 shadow-[0_0_8px_rgba(52,211,153,0.5)] font-black'
+                    : 'bg-white/10 text-white/80 hover:bg-white/20 border-white/20'
+                }`}
+                title="빠르게 연습하기 (120%)"
+              >
+                🚀 120%
+              </button>
+            </div>
+            {/* Slider on desktop */}
+            <div className="hidden md:flex w-36 sm:w-44 relative items-center">
               <input
                 type="range"
                 min="50"
@@ -355,7 +397,8 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
                 step="5"
                 value={speedPercent}
                 onChange={(e) => onChangeSpeed(Number(e.target.value))}
-                className="w-full h-3 bg-[#1f2258] rounded-full appearance-none cursor-pointer accent-white focus:outline-hidden"
+                className="w-full h-2.5 bg-[#1f2258] rounded-full appearance-none cursor-pointer accent-cyan-400 focus:outline-hidden"
+                aria-label="속도 조절 슬라이더"
               />
             </div>
           </div>

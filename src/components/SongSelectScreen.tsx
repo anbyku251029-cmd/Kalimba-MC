@@ -520,22 +520,22 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
                     <button
                       type="button"
                       onClick={(e) => handleTogglePreview(e, song)}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center space-x-1 transition cursor-pointer border ${
+                      className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer border ${
                         isPreviewing
                           ? 'bg-amber-400 text-amber-950 border-amber-300 animate-pulse font-black'
-                          : 'bg-white/8 hover:bg-white/15 text-white/80 hover:text-white border-white/15'
+                          : 'bg-white/8 hover:bg-white/15 text-white/85 hover:text-white border-white/15'
                       }`}
                       title={isPreviewing ? '미리 듣기 정지' : '앞부분 소리 미리 듣기'}
                     >
                       {isPreviewing ? (
                         <>
                           <Square className="w-3.5 h-3.5 fill-current" />
-                          <span>정지</span>
+                          <span>정지하기</span>
                         </>
                       ) : (
                         <>
                           <Volume2 className="w-3.5 h-3.5 text-cyan-300" />
-                          <span>미리 듣기</span>
+                          <span>먼저 듣기</span>
                         </>
                       )}
                     </button>
@@ -559,6 +559,38 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
               );
             })}
           </div>
+
+          {/* Search Empty State */}
+          {displayedSongs.length === 0 && (
+            <div className="bg-white/5 border border-white/10 rounded-3xl p-8 sm:p-12 text-center flex flex-col items-center justify-center space-y-4 my-4">
+              <span className="text-5xl sm:text-6xl animate-bounce">🔍</span>
+              <div className="space-y-1">
+                <h4 className="text-xl sm:text-2xl font-black text-white">
+                  앗! 찾으시는 곡이 없어요
+                </h4>
+                <p className="text-sm text-cyan-200/70 max-w-md font-sans">
+                  "{searchQuery}"에 해당하는 곡을 찾지 못했어요. 철자를 확인하거나 다른 제목으로 검색해 보세요!
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold transition cursor-pointer border border-white/20"
+                >
+                  검색어 지우기
+                </button>
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setActiveTab('전체');
+                  }}
+                  className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-[#0c0827] text-xs sm:text-sm font-black transition cursor-pointer shadow-[0_0_12px_rgba(34,211,238,0.4)]"
+                >
+                  모든 곡 보기 ({songs.length}곡)
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Helpful Tips Card */}
