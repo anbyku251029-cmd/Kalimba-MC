@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { X, Volume2, Save, RotateCcw, Plus, Sparkles } from 'lucide-react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { X, Volume2, Save, RotateCcw, Plus, Sparkles, Square } from 'lucide-react';
 import { Song } from '../types/music';
 import { parseSimpleNotation, notesToSimpleNotation } from '../utils/noteParser';
 import { audioEngine } from '../utils/audioEngine';
@@ -34,6 +34,11 @@ const QUICK_NOTE_BUTTONS = [
   { label: "4' (높은파)", token: "4'" },
   { label: "5' (높은솔)", token: "5'" },
   { label: "6' (높은라)", token: "6'" },
+  { label: "7' (높은시)", token: "7'" },
+  { label: "1'' (최고도)", token: "1''" },
+  { label: "2'' (최고레)", token: "2''" },
+  { label: "3'' (최고미)", token: "3''" },
+  { label: '0 (쉼표)', token: '0' },
   { label: '- (길게+1박)', token: '-' },
   { label: '| (마디구분)', token: '|' },
 ];
@@ -62,6 +67,21 @@ export const HymnEditorModal: React.FC<HymnEditorModalProps> = ({
     return "5 1'- 3' 1' | 3'- 2' | 1'- 6 | 5--";
   });
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const [isPlayingPreview, setIsPlayingPreview] = useState<boolean>(false);
+  const previewTimerRef = useRef<number[]>([]);
+
+  const stopPreview = () => {
+    previewTimerRef.current.forEach((t) => window.clearTimeout(t));
+    previewTimerRef.current = [];
+    audioEngine.stopAll();
+    setIsPlayingPreview(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      stopPreview();
+    };
+  }, []);
 
   const parsedNotes = useMemo(() => {
     return parseSimpleNotation(rawNotation);
@@ -82,29 +102,47 @@ export const HymnEditorModal: React.FC<HymnEditorModalProps> = ({
     }
   };
 
-  // 미리 듣기 (앞부분 최대 12음 연속 재생)
-  const handlePreviewAudio = () => {
-    if (playableNotes.length === 0) return;
-    audioEngine.ensureReady();
-    audioEngine.stopAll();
+  // 미리 듣기 토글 (앞부분 최대 16음 연속 재생)
+  const handleTogglePreviewAudio = () => {
+    if (isPlayingPreview) {
+      stopPreview();
+      return;
+    }
 
-    const previewSlice = parsedNotes.slice(0, 12);
+    if (playableNotes.length === 0) return;
+    stopPreview();
+    audioEngine.ensureReady();
+    setIsPlayingPreview(true);
+
+    const previewSlice = parsedNotes.slice(0, 16);
     let accumulatedBeat = 0;
     const beatMs = (60 / tempoBpm) * 1000;
 
     previewSlice.forEach((n) => {
       if (!n.isRest && n.pitch !== 'REST') {
         const delayMs = accumulatedBeat * beatMs;
-        setTimeout(() => {
+        const tid = window.setTimeout(() => {
           audioEngine.playNote(n.pitch, n.duration, tempoBpm, 1.0);
         }, delayMs);
+        previewTimerRef.current.push(tid);
       }
       accumulatedBeat += n.duration;
     });
+
+    const finishTid = window.setTimeout(() => {
+      setIsPlayingPreview(false);
+    }, accumulatedBeat * beatMs + 400);
+    previewTimerRef.current.push(finishTid);
+  };
+
+  const handleCloseModal = () => {
+    stopPreview();
+    onClose();
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    stopPreview();
     if (!title.trim()) {
       setErrorMsg('찬송가 제목을 입력해 주세요.');
       return;
@@ -132,7 +170,7 @@ export const HymnEditorModal: React.FC<HymnEditorModalProps> = ({
       <div className="bg-[#141036] border-2 border-amber-400/60 rounded-3xl max-w-2xl w-full p-5 sm:p-7 text-white shadow-[0_0_40px_rgba(251,191,36,0.25)] relative my-auto max-h-[92vh] overflow-y-auto">
         {/* Close Button */}
         <button
-          onClick={onClose}
+          onClick={handleCloseModal}
           className="absolute top-4 right-4 text-white/60 hover:text-white p-2 rounded-full hover:bg-white/10 transition cursor-pointer"
           aria-label="닫기"
         >
@@ -273,11 +311,24 @@ export const HymnEditorModal: React.FC<HymnEditorModalProps> = ({
               </label>
               <button
                 type="button"
-                onClick={handlePreviewAudio}
-                className="inline-flex items-center space-x-1 text-xs font-bold bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border border-cyan-400/40 px-2.5 py-1 rounded-lg transition cursor-pointer"
+                onClick={handleTogglePreviewAudio}
+                className={`inline-flex items-center space-x-1.5 text-xs font-bold px-2.5 py-1 rounded-lg transition cursor-pointer border ${
+                  isPlayingPreview
+                    ? 'bg-rose-500/30 text-rose-200 border-rose-400/60 hover:bg-rose-500/40'
+                    : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-200 border-cyan-400/40'
+                }`}
               >
-                <Volume2 className="w-3.5 h-3.5" />
-                <span>앞부분 미리 듣기</span>
+                {isPlayingPreview ? (
+                  <>
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                    <span>재생 중지</span>
+                  </>
+                ) : (
+                  <>
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>앞부분 미리 듣기</span>
+                  </>
+                )}
               </button>
             </div>
             <textarea
@@ -343,7 +394,7 @@ export const HymnEditorModal: React.FC<HymnEditorModalProps> = ({
             <div className="flex items-center space-x-2.5 ml-auto">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={handleCloseModal}
                 className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs sm:text-sm font-bold transition cursor-pointer"
               >
                 취소

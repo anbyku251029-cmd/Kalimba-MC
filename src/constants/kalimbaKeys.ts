@@ -33,7 +33,7 @@ export const KALIMBA_KEYS: KalimbaKeyDef[] = [
   { index: 12, pitch: 'D5', solfege: '레', numberNotation: '2', octaveLevel: 1, hand: 'right', frequency: 587.33, tineHeightPercent: 75, letter: 'D', dots: 1, defaultBlockColor: 'orange' },
   { index: 13, pitch: 'F5', solfege: '파', numberNotation: '4', octaveLevel: 1, hand: 'right', frequency: 698.46, tineHeightPercent: 69, letter: 'F', dots: 1, defaultBlockColor: 'teal' },
   { index: 14, pitch: 'A5', solfege: '라', numberNotation: '6', octaveLevel: 1, hand: 'right', frequency: 880.00, tineHeightPercent: 63, letter: 'A', dots: 1, defaultBlockColor: 'purple' },
-  { index: 15, pitch: 'C6', solfege: '도', numberNotation: '1', octaveLevel: 2, hand: 'right', frequency: 1046.50, tineHeightPercent: 57, letter: 'C', dots: 1, defaultBlockColor: 'orange' },
+  { index: 15, pitch: 'C6', solfege: '도', numberNotation: '1', octaveLevel: 2, hand: 'right', frequency: 1046.50, tineHeightPercent: 57, letter: 'C', dots: 2, defaultBlockColor: 'orange' },
   { index: 16, pitch: 'E6', solfege: '미', numberNotation: '3', octaveLevel: 2, hand: 'right', frequency: 1318.51, tineHeightPercent: 52, letter: 'E', dots: 2, defaultBlockColor: 'green' },
 ];
 
