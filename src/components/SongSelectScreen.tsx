@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Music, Play, Sparkles, CheckCircle2, ChevronRight, Plus, Edit3, Search, Volume2, Square, Sliders } from 'lucide-react';
+import { Music, Play, Sparkles, CheckCircle2, ChevronRight, Plus, Edit3, Search, Volume2, Square, Sliders, ClipboardCheck } from 'lucide-react';
 import { Song } from '../types/music';
 import { HymnEditorModal } from './HymnEditorModal';
 import { SoundSettingsModal } from './SoundSettingsModal';
+import { ValidationReportModal } from './ValidationReportModal';
 import { audioEngine } from '../utils/audioEngine';
 
 interface SongSelectScreenProps {
@@ -35,6 +36,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isHymnModalOpen, setIsHymnModalOpen] = useState<boolean>(false);
   const [isSoundSettingsOpen, setIsSoundSettingsOpen] = useState<boolean>(false);
+  const [isValidationModalOpen, setIsValidationModalOpen] = useState<boolean>(false);
   const [editingHymn, setEditingHymn] = useState<Song | null>(null);
 
   // 미리 듣기 상태 관리
@@ -254,8 +256,17 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
             </div>
           </div>
 
-          {/* Quick Stats, Sound Settings & Hymn Update Buttons */}
+          {/* Quick Stats, Sound Settings, Validation Report & Hymn Update Buttons */}
           <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => setIsValidationModalOpen(true)}
+              className="px-3.5 py-2 rounded-2xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/60 text-indigo-200 text-xs sm:text-sm font-bold flex items-center space-x-1.5 shadow-[0_0_15px_rgba(99,102,241,0.25)] transition cursor-pointer active:scale-95"
+              title="110곡 음악 데이터 무결성 및 마디 검증 리포트 열기"
+            >
+              <ClipboardCheck className="w-4 h-4 text-indigo-300 stroke-[2.5]" />
+              <span>데이터 검증</span>
+            </button>
+
             <button
               onClick={() => setIsSoundSettingsOpen(true)}
               className="px-3.5 py-2 rounded-2xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/60 text-cyan-200 text-xs sm:text-sm font-bold flex items-center space-x-1.5 shadow-[0_0_15px_rgba(34,211,238,0.25)] transition cursor-pointer active:scale-95"
@@ -591,6 +602,11 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
       {/* Sound Settings Modal */}
       {isSoundSettingsOpen && (
         <SoundSettingsModal onClose={() => setIsSoundSettingsOpen(false)} />
+      )}
+
+      {/* Music Validation Report Modal */}
+      {isValidationModalOpen && (
+        <ValidationReportModal songs={songs} onClose={() => setIsValidationModalOpen(false)} />
       )}
     </div>
   );
