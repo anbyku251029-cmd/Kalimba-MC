@@ -1,0 +1,8 @@
+{
+  "name": "Remix 우리 아이 칼림바 음악 교실01",
+  "description": "어린이가 혼자서도 쉽게 실제 칼림바를 따라 연주할 수 있는 인터랙티브 숫자 악보와 음악 교실 웹 애플리케이션",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,499 @@
+import React, { useState, useMemo } from 'react';
+import { Music, Play, Sparkles, CheckCircle2, ChevronRight, Plus, Edit3, Search } from 'lucide-react';
+import { Song } from '../types/music';
+import { HymnEditorModal } from './HymnEditorModal';
+
+interface SongSelectScreenProps {
+  songs: Song[];
+  onSelectSong: (song: Song, difficulty: '쉬움' | '보통' | '어려움' | '찬송가') => void;
+  completedSongIds: string[];
+  onSaveHymn: (hymnData: {
+    id?: string;
+    hymnNumber?: number;
+    title: string;
+    subTitle?: string;
+    description?: string;
+    tempoBpm: number;
+    timeSignature?: '4/4' | '3/4' | '2/4' | '6/8';
+    rawNotation: string;
+  }) => void;
+  onDeleteOrResetHymn: (id: string) => void;
+}
+
+type TabType = '쉬움' | '보통' | '어려움' | '찬송가' | '전체';
+
+export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
+  songs,
+  onSelectSong,
+  completedSongIds,
+  onSaveHymn,
+  onDeleteOrResetHymn,
+}) => {
+  const [activeTab, setActiveTab] = useState<TabType>('쉬움');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isHymnModalOpen, setIsHymnModalOpen] = useState<boolean>(false);
+  const [editingHymn, setEditingHymn] = useState<Song | null>(null);
+
+  const counts = useMemo(() => {
+    return {
+      쉬움: songs.filter((s) => s.level === 'beginner').length,
+      보통: songs.filter((s) => s.level === 'intermediate').length,
+      어려움: songs.filter((s) => s.level === 'advanced').length,
+      찬송가: songs.filter((s) => s.level === 'hymn').length,
+    };
+  }, [songs]);
+
+  // Filter songs by tab and search query
+  const displayedSongs = useMemo(() => {
+    let list = songs;
+    if (activeTab === '쉬움') {
+      list = songs.filter((s) => s.level === 'beginner');
+    } else if (activeTab === '보통') {
+      list = songs.filter((s) => s.level === 'intermediate');
+    } else if (activeTab === '어려움') {
+      list = songs.filter((s) => s.level === 'advanced');
+    } else if (activeTab === '찬송가') {
+      list = songs.filter((s) => s.level === 'hymn');
+    }
+
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return list;
+
+    return list.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        (s.subTitle && s.subTitle.toLowerCase().includes(q)) ||
+        (s.hymnNumber && String(s.hymnNumber).includes(q)) ||
+        s.tags.some((t) => t.toLowerCase().includes(q))
+    );
+  }, [songs, activeTab, searchQuery]);
+
+  const tabConfigs: {
+    key: '쉬움' | '보통' | '어려움' | '찬송가';
+    label: string;
+    levelName: string;
+    icon: string;
+    speed: string;
+    desc: string;
+    activeBg: string;
+    activeBorder: string;
+    activeText: string;
+    badgeBg: string;
+    unitLabel: string;
+  }[] = [
+    {
+      key: '쉬움',
+      label: '쉬움',
+      levelName: '초급 30곡',
+      icon: '🌱',
+      speed: '속도 70%',
+      desc: '가운데 도와 기초 건반 위주의 가장 쉬운 동요 30곡',
+      activeBg: 'bg-emerald-500/20',
+      activeBorder: 'border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.4)]',
+      activeText: 'text-emerald-300',
+      badgeBg: 'bg-emerald-500/30 text-emerald-200 border-emerald-400/50',
+      unitLabel: `초급 동요 ${counts.쉬움}곡`,
+    },
+    {
+      key: '보통',
+      label: '보통',
+      levelName: '중급 30곡',
+      icon: '🎵',
+      speed: '속도 100%',
+      desc: '친숙한 동요·민요·가곡과 양손 교차 대표곡 30곡',
+      activeBg: 'bg-cyan-500/20',
+      activeBorder: 'border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.4)]',
+      activeText: 'text-cyan-300',
+      badgeBg: 'bg-cyan-500/30 text-cyan-200 border-cyan-400/50',
+      unitLabel: `중급 명곡 ${counts.보통}곡`,
+    },
+    {
+      key: '어려움',
+      label: '어려움',
+      levelName: '고급 30곡',
+      icon: '🚀',
+      speed: '속도 130%',
+      desc: '지브리 OST·클래식·영화음악 고난도 연주 30곡',
+      activeBg: 'bg-purple-500/20',
+      activeBorder: 'border-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.4)]',
+      activeText: 'text-purple-300',
+      badgeBg: 'bg-purple-500/30 text-purple-200 border-purple-400/50',
+      unitLabel: `고급 명곡 ${counts.어려움}곡`,
+    },
+    {
+      key: '찬송가',
+      label: '찬송가',
+      levelName: '업데이트 가능',
+      icon: '✝️',
+      speed: '속도 90%',
+      desc: '은혜로운 새찬송가·복음성가 연주 및 새 찬송가 직접 추가/수정',
+      activeBg: 'bg-amber-500/20',
+      activeBorder: 'border-amber-400 shadow-[0_0_20px_rgba(251,191,36,0.4)]',
+      activeText: 'text-amber-300',
+      badgeBg: 'bg-amber-500/30 text-amber-200 border-amber-400/50',
+      unitLabel: `수록 찬송가 ${counts.찬송가}곡 (추가 가능)`,
+    },
+  ];
+
+  const handleStartPractice = (song: Song, diffOverride?: '쉬움' | '보통' | '어려움' | '찬송가') => {
+    const diff: '쉬움' | '보통' | '어려움' | '찬송가' =
+      diffOverride ||
+      (activeTab === '전체'
+        ? song.level === 'beginner'
+          ? '쉬움'
+          : song.level === 'advanced'
+          ? '어려움'
+          : song.level === 'hymn'
+          ? '찬송가'
+          : '보통'
+        : activeTab);
+    onSelectSong(song, diff);
+  };
+
+  const handleOpenAddHymn = () => {
+    setEditingHymn(null);
+    setIsHymnModalOpen(true);
+  };
+
+  const handleOpenEditHymn = (e: React.MouseEvent, song: Song) => {
+    e.stopPropagation();
+    setEditingHymn(song);
+    setIsHymnModalOpen(true);
+  };
+
+  return (
+    <div className="relative w-full min-h-screen bg-[#0c0827] text-white flex flex-col justify-start overflow-y-auto select-none font-['Jua',sans-serif] p-4 sm:p-8">
+      {/* Background Starry Sky Radial Glow */}
+      <div className="fixed inset-0 bg-[radial-gradient(circle_at_50%_15%,#1c1448_0%,#0c0827_85%)] pointer-events-none" />
+
+      {/* Decorative stars */}
+      <div className="fixed top-12 left-10 text-cyan-300/20 text-3xl pointer-events-none">✦</div>
+      <div className="fixed top-24 right-16 text-amber-300/30 text-2xl pointer-events-none">⭐</div>
+      <div className="fixed bottom-12 left-1/4 text-white/10 text-4xl pointer-events-none">✦</div>
+      <div className="fixed bottom-20 right-1/4 text-purple-300/20 text-3xl pointer-events-none">✨</div>
+
+      <div className="relative z-10 max-w-6xl w-full mx-auto flex flex-col space-y-6">
+        {/* App Title & Header */}
+        <header className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-4 pt-2 pb-1 border-b border-white/10">
+          <div className="flex items-center space-x-3.5">
+            <div className="w-13 h-13 sm:w-16 sm:h-16 rounded-2xl bg-linear-to-tr from-cyan-500 via-sky-400 to-indigo-500 p-0.5 shadow-[0_0_20px_rgba(56,189,248,0.5)] flex items-center justify-center shrink-0">
+              <div className="w-full h-full bg-[#120f38] rounded-2xl flex items-center justify-center text-2xl sm:text-3xl">
+                🎹
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h1 className="text-2xl sm:text-4xl font-extrabold tracking-normal text-white drop-shadow-md">
+                  우리 아이 칼림바 음악 교실
+                </h1>
+                <span className="hidden sm:inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-cyan-500/20 border border-cyan-400/40 text-cyan-200 text-xs font-bold">
+                  <Sparkles className="w-3 h-3 text-cyan-300" />
+                  <span>17음 C Major</span>
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-cyan-200/70 mt-1 font-sans">
+                단계별 30곡(초급·중급·고급)과 은혜로운 찬송가 카테고리를 선택해 첫 음부터 끝까지 따라 연주해 보세요!
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Stats & Hymn Update Button */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => {
+                setActiveTab('찬송가');
+                handleOpenAddHymn();
+              }}
+              className="px-3.5 py-2 rounded-2xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/60 text-amber-200 text-xs sm:text-sm font-bold flex items-center space-x-1.5 shadow-[0_0_15px_rgba(251,191,36,0.25)] transition cursor-pointer active:scale-95"
+            >
+              <Plus className="w-4 h-4 text-amber-300 stroke-[3]" />
+              <span>찬송가 업데이트 / 추가</span>
+            </button>
+
+            <div className="flex items-center space-x-3 bg-white/5 border border-white/10 px-4 py-2 rounded-2xl shadow-inner">
+              <div className="flex items-center space-x-1.5 text-amber-300 text-sm font-bold">
+                <span>⭐</span>
+                <span>완주 {completedSongIds.length}곡</span>
+              </div>
+              <span className="text-white/20">|</span>
+              <div className="text-cyan-200 text-sm font-bold">
+                총 {songs.length}곡 수록
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* 4 Category Tabs: [쉬움 30곡] [보통 30곡] [어려움 30곡] [찬송가] */}
+        <div>
+          <div className="flex items-center justify-between mb-2.5">
+            <h2 className="text-base sm:text-lg font-bold text-cyan-100 flex items-center space-x-1.5">
+              <span>🎯</span>
+              <span>연습할 단계 또는 찬송가 카테고리를 선택해 주세요</span>
+            </h2>
+            <span className="text-xs text-white/50 hidden sm:inline">
+              각 단계별 30곡씩 수록되어 있으며, 찬송가는 직접 추가·업데이트할 수 있습니다
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {tabConfigs.map((tab) => {
+              const isSelected = activeTab === tab.key;
+
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`p-4 rounded-2xl border-2 transition-all cursor-pointer text-left flex flex-col justify-between relative active:scale-98 ${
+                    isSelected
+                      ? `${tab.activeBg} ${tab.activeBorder} scale-101 ring-2 ring-white/30`
+                      : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20 text-white/80'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full mb-2">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-2xl sm:text-3xl">{tab.icon}</span>
+                      <div>
+                        <span className="text-xl sm:text-2xl font-black text-white">{tab.label}</span>
+                        <span className="block text-[11px] font-bold text-white/60">({tab.levelName})</span>
+                      </div>
+                    </div>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${tab.badgeBg}`}>
+                      {tab.speed}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-cyan-100/80 mb-2 font-sans line-clamp-2">
+                    {tab.desc}
+                  </p>
+
+                  <div className="flex items-center justify-between text-xs text-white/50 pt-2 border-t border-white/10 w-full">
+                    <span>{tab.unitLabel}</span>
+                    {isSelected && (
+                      <span className={`font-bold ${tab.activeText} flex items-center space-x-0.5`}>
+                        <span>선택됨</span>
+                        <ChevronRight className="w-3.5 h-3.5 stroke-[3]" />
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Song Cards Section */}
+        <div className="flex flex-col space-y-3 pb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg sm:text-xl font-bold text-white">
+                {activeTab === '찬송가' ? '✝️ 찬송가 & 복음성가 목록' : `${activeTab} 단계 곡 목록`} ({displayedSongs.length}곡)
+              </h3>
+              <span className="text-xs bg-white/10 text-cyan-200 px-2.5 py-0.5 rounded-full font-bold">
+                연습 시작하기 클릭 시 첫 음부터 시작
+              </span>
+
+              {activeTab === '찬송가' && (
+                <button
+                  onClick={handleOpenAddHymn}
+                  className="px-3 py-1 rounded-full bg-linear-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-[#141036] text-xs font-black flex items-center space-x-1 shadow-[0_0_12px_rgba(251,191,36,0.4)] transition cursor-pointer active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[3]" />
+                  <span>새 찬송가 악보 추가하기</span>
+                </button>
+              )}
+            </div>
+
+            {/* Search Input & All songs filter toggle */}
+            <div className="flex items-center space-x-2">
+              <div className="relative flex-1 sm:w-56">
+                <Search className="w-4 h-4 text-white/40 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="곡 제목 또는 찬송가 장수 검색..."
+                  className="w-full pl-9 pr-3 py-1.5 rounded-full bg-white/8 border border-white/15 text-xs sm:text-sm text-white placeholder-white/40 focus:border-cyan-400 focus:outline-hidden font-sans"
+                />
+              </div>
+
+              <button
+                onClick={() => setActiveTab(activeTab === '전체' ? '쉬움' : '전체')}
+                className={`text-xs px-3 py-1.5 rounded-full border transition cursor-pointer font-bold shrink-0 ${
+                  activeTab === '전체'
+                    ? 'bg-cyan-500 text-[#12163a] border-cyan-400 font-extrabold shadow-sm'
+                    : 'bg-white/5 text-white/70 border-white/15 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                전체 {songs.length}곡 보기
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {displayedSongs.map((song, idx) => {
+              const isCompleted = completedSongIds.includes(song.id);
+              const isHymn = song.level === 'hymn';
+              const isHighlighted = song.id === 'beginner-4' || song.id === 'hymn-305';
+              const songDifficulty: '쉬움' | '보통' | '어려움' | '찬송가' =
+                activeTab === '전체'
+                  ? song.level === 'beginner'
+                    ? '쉬움'
+                    : song.level === 'advanced'
+                    ? '어려움'
+                    : song.level === 'hymn'
+                    ? '찬송가'
+                    : '보통'
+                  : activeTab;
+
+              const playableCount = song.notes.filter((n) => !n.isRest && n.pitch !== 'REST').length;
+
+              return (
+                <div
+                  key={song.id}
+                  onClick={() => handleStartPractice(song, songDifficulty)}
+                  className={`group relative rounded-2xl border-2 p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between overflow-hidden shadow-lg hover:shadow-cyan-500/20 active:scale-98 ${
+                    isHymn
+                      ? 'bg-linear-to-b from-[#231b42] to-[#141030] border-amber-400/40 hover:border-amber-400/80'
+                      : isHighlighted
+                      ? 'bg-linear-to-b from-[#18234d] to-[#12163a] border-cyan-400/80 shadow-[0_0_20px_rgba(34,211,238,0.25)] ring-2 ring-cyan-400/30'
+                      : 'bg-white/5 border-white/10 hover:border-cyan-400/50 hover:bg-white/10'
+                  }`}
+                >
+                  {/* Top: Icon, Title, and Subtitle */}
+                  <div>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex items-center space-x-2.5">
+                        <div
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border font-extrabold text-xs ${
+                            isHymn
+                              ? 'bg-amber-400/20 border-amber-400/50 text-amber-300'
+                              : isHighlighted
+                              ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                              : 'bg-white/10 border-white/20 text-cyan-200'
+                          }`}
+                        >
+                          {isHymn && song.hymnNumber ? (
+                            <span>{song.hymnNumber}장</span>
+                          ) : (
+                            <span>{idx + 1}</span>
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h4 className="text-lg sm:text-xl font-black text-white group-hover:text-cyan-300 transition leading-tight">
+                              {song.title}
+                            </h4>
+                            {song.isCustom && (
+                              <span className="text-[10px] bg-amber-400 text-amber-950 px-1.5 py-0.5 rounded-full font-bold">
+                                직접 추가됨
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-cyan-200/60 font-sans mt-0.5 line-clamp-1">
+                            {song.subTitle || song.description}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        {isHymn && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenEditHymn(e, song)}
+                            className="p-1.5 rounded-lg bg-white/10 hover:bg-amber-400 hover:text-[#141036] text-amber-200 transition cursor-pointer"
+                            title="이 찬송가 악보 수정/업데이트"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {isCompleted && (
+                          <div className="flex items-center space-x-1 text-amber-400 text-xs font-bold">
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span>완주</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Song Specs: Note count, Tempo, Tags */}
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2.5 text-xs text-white/70">
+                      <span className="bg-white/10 px-2 py-0.5 rounded-md font-bold text-cyan-200">
+                        총 {playableCount}음
+                      </span>
+                      <span className="bg-white/10 px-2 py-0.5 rounded-md font-bold text-white/80">
+                        {song.tempoBpm} BPM
+                      </span>
+                      {song.tags && song.tags[0] && (
+                        <span className="bg-white/5 border border-white/10 px-2 py-0.5 rounded-md text-[11px] text-white/60">
+                          {song.tags[0]}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Bottom: Play Button */}
+                  <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between">
+                    <span className={`text-xs font-bold ${isHymn ? 'text-amber-300/90' : 'text-cyan-300/80'}`}>
+                      {isHymn ? '찬송가 연주' : `${songDifficulty} 모드로 연주`}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartPractice(song, songDifficulty);
+                      }}
+                      className={`px-4 py-2 rounded-xl font-black text-xs sm:text-sm flex items-center space-x-1.5 transition cursor-pointer active:scale-95 ${
+                        isHymn
+                          ? 'bg-linear-to-r from-amber-400 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-[#141036] shadow-[0_0_12px_rgba(251,191,36,0.4)]'
+                          : 'bg-linear-to-r from-cyan-400 to-sky-500 hover:from-cyan-300 hover:to-sky-400 text-[#0c0827] shadow-[0_0_12px_rgba(34,211,238,0.4)]'
+                      }`}
+                    >
+                      <Play className="w-4 h-4 fill-current" />
+                      <span>연습 시작하기</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Helpful Tips Card for Kids & Parents */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 text-cyan-100 text-xs sm:text-sm">
+          <div className="flex items-center space-x-3">
+            <span className="text-3xl">💡</span>
+            <div>
+              <strong className="text-white block font-bold text-sm sm:text-base">
+                찬송가 업데이트 팁: 우측 상단 [찬송가 업데이트 / 추가] 버튼으로 원하는 찬송가를 계속 추가하세요!
+              </strong>
+              <span className="text-cyan-200/70 font-sans">
+                칼림바 숫자 악보(1 2 3 5 1&apos;)나 계이름(도 레 미 솔 도&apos;)만 적어 넣으면 자동으로 17키 폭포수 리듬 악보가 만들어집니다.
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Hymn Add / Update Modal */}
+      {isHymnModalOpen && (
+        <HymnEditorModal
+          initialSong={editingHymn}
+          onSave={(data) => {
+            onSaveHymn(data);
+            setIsHymnModalOpen(false);
+            setEditingHymn(null);
+            setActiveTab('찬송가');
+          }}
+          onDeleteOrReset={(id) => {
+            onDeleteOrResetHymn(id);
+            setIsHymnModalOpen(false);
+            setEditingHymn(null);
+          }}
+          onClose={() => {
+            setIsHymnModalOpen(false);
+            setEditingHymn(null);
+          }}
+        />
+      )}
+    </div>
+  );
+};
