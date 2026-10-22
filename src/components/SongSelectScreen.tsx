@@ -5,6 +5,7 @@ import { HymnEditorModal } from './HymnEditorModal';
 import { SoundSettingsModal } from './SoundSettingsModal';
 import { ValidationReportModal } from './ValidationReportModal';
 import { StepLearningModal } from './StepLearningModal';
+import { StickerRewardBoardModal } from './StickerRewardBoardModal';
 import { audioEngine } from '../utils/audioEngine';
 
 interface SongSelectScreenProps {
@@ -38,6 +39,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   const [isHymnModalOpen, setIsHymnModalOpen] = useState<boolean>(false);
   const [isSoundSettingsOpen, setIsSoundSettingsOpen] = useState<boolean>(false);
   const [isValidationModalOpen, setIsValidationModalOpen] = useState<boolean>(false);
+  const [isRewardModalOpen, setIsRewardModalOpen] = useState<boolean>(false);
   const [learningSong, setLearningSong] = useState<Song | null>(null);
   const [editingHymn, setEditingHymn] = useState<Song | null>(null);
 
@@ -286,6 +288,16 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
             >
               <Plus className="w-4 h-4 text-amber-300 stroke-[3]" />
               <span>찬송가 업데이트 / 추가</span>
+            </button>
+
+            {/* 구구가가 스티커 보상판 버튼 */}
+            <button
+              onClick={() => setIsRewardModalOpen(true)}
+              className="px-3.5 py-2 rounded-2xl bg-linear-to-r from-pink-500/20 to-purple-500/20 hover:from-pink-500/30 hover:to-purple-500/30 border border-pink-400/60 text-pink-200 text-xs sm:text-sm font-bold flex items-center space-x-1.5 shadow-[0_0_15px_rgba(244,114,182,0.25)] transition cursor-pointer active:scale-95"
+              title="마디 연습 구구가가 10종 스티커 보상판 열기"
+            >
+              <span className="text-base">🎨</span>
+              <span>구구가가 스티커 보상판</span>
             </button>
 
             <div className="flex items-center space-x-3 bg-white/5 border border-white/10 px-4 py-2 rounded-2xl shadow-inner">
@@ -675,6 +687,12 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
           }}
         />
       )}
+
+      {/* GuGuGaGa Sticker Reward Board Modal */}
+      <StickerRewardBoardModal
+        isOpen={isRewardModalOpen}
+        onClose={() => setIsRewardModalOpen(false)}
+      />
     </div>
   );
 };

@@ -29,6 +29,9 @@ import { SongMeasureData, MeasureInfo } from '../types/measureTypes';
 import { speechNarrator } from '../utils/speechNarrationService';
 import { NARRATION_PHRASES } from '../constants/narrationPhrases';
 import { SpeechNarrationStatus } from '../types/speechNarrationTypes';
+import { GuguGagaSticker } from '../types/practiceRewardTypes';
+import { recordSectionPracticeCompletion } from '../utils/practiceRewardService';
+import { StickerRewardBoardModal } from './StickerRewardBoardModal';
 
 interface StepLearningModalProps {
   song: Song;
@@ -68,6 +71,10 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
 
   // 음성 나레이션 상태
   const [narrationStatus, setNarrationStatus] = useState<SpeechNarrationStatus>(() => speechNarrator.getStatus());
+
+  // 구구가가 스티커 보상판 모달 상태
+  const [isRewardModalOpen, setIsRewardModalOpen] = useState<boolean>(false);
+  const [celebrationStickers, setCelebrationStickers] = useState<GuguGagaSticker[]>([]);
 
   // 마이크 음정 분석 (시험 기능) 상태
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
@@ -246,7 +253,15 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
           const elapsedSec = Math.round(accumulatedBeats * beatSeconds * totalIterations);
           const updated = saveSongStepProgress(song.id, 'LOOP_PRACTICE', elapsedSec, speed);
           setProgress(updated);
-          speechNarrator.speak(NARRATION_PHRASES.STEP3_REPEAT_COMPLETE);
+
+          // 마디 연습 완주 기록 및 구구가가 스티커 보상 체크
+          const rewardResult = recordSectionPracticeCompletion(song.id, startMeasure, endMeasure);
+          if (rewardResult.newlyUnlockedStickers.length > 0) {
+            setCelebrationStickers(rewardResult.newlyUnlockedStickers);
+            setIsRewardModalOpen(true);
+          } else {
+            speechNarrator.speak(NARRATION_PHRASES.STEP3_REPEAT_COMPLETE);
+          }
         }, iterationTotalMs);
         sectionTimerRef.current.push(finishTimer);
       }
@@ -340,6 +355,20 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
                 title="음성 안내 다시 듣기"
               >
                 <RotateCcw className="w-4 h-4" />
+              </button>
+
+              {/* 구구가가 스티커 보상판 버튼 */}
+              <button
+                type="button"
+                onClick={() => {
+                  setCelebrationStickers([]);
+                  setIsRewardModalOpen(true);
+                }}
+                className="flex items-center space-x-1 px-2.5 py-1 rounded-xl bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 border border-pink-400/40 text-xs font-bold transition cursor-pointer"
+                title="구구가가 스티커 보상판 열기"
+              >
+                <span>🎨</span>
+                <span className="hidden sm:inline text-[11px]">스티커 보상판</span>
               </button>
             </div>
 
@@ -490,7 +519,12 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
                         onClick={() => {
                           audioEngine.playNote(k.pitch, 1, 80);
                         }}
-                        style={{ height: `${k.tineHeightPercent}%` }}
+                        style={{
+                          height: `${k.tineHeightPercent}%`,
+                          touchAction: 'none',
+                          userSelect: 'none',
+                          WebkitUserSelect: 'none',
+                        }}
                         className={`w-4 sm:w-5 rounded-b-md transition-all duration-200 cursor-pointer flex flex-col justify-end items-center pb-1 ${
                           isTarget
                             ? 'bg-linear-to-b from-amber-300 to-amber-500 shadow-[0_0_14px_#f59e0b] scale-y-105'
@@ -949,6 +983,16 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* 구구가가 스티커 보상판 모달 */}
+      <StickerRewardBoardModal
+        isOpen={isRewardModalOpen}
+        onClose={() => {
+          setIsRewardModalOpen(false);
+          setCelebrationStickers([]);
+        }}
+        celebrationStickers={celebrationStickers}
+      />
     </div>
   );
 };

@@ -3,6 +3,7 @@ import { KALIMBA_KEYS, KalimbaKeyDef, PITCH_TO_KEY } from '../constants/kalimbaK
 import { Song } from '../types/music';
 import { audioEngine } from '../utils/audioEngine';
 import { calculateSongTimeline, TimedNoteItem, INITIAL_LEAD_IN_BEATS } from '../utils/musicTiming';
+import { KalimbaTouchController } from '../utils/kalimbaTouchController';
 
 type FallingNoteItem = TimedNoteItem;
 
@@ -219,7 +220,31 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
     onRestart();
   };
 
-  // Click on a tine
+  // Multi-touch Controller for Mobile & Tablet 17-Key Kalimba
+  const touchControllerRef = useRef<KalimbaTouchController>(new KalimbaTouchController());
+  const lastPointerTriggerTimeRef = useRef<{ [keyIndex: number]: number }>({});
+
+  useEffect(() => {
+    touchControllerRef.current.setHandlers({
+      onKeyDown: (keyIndex: number) => {
+        const k = KALIMBA_KEYS[keyIndex];
+        if (k) {
+          lastPointerTriggerTimeRef.current[keyIndex] = Date.now();
+          triggerKey(
+            k.index,
+            k.pitch,
+            k.isCenter ? 'orange' : k.index % 2 === 0 ? 'green' : 'orange'
+          );
+          setShowCheer(true);
+        }
+      },
+      onKeyUp: () => {
+        // Tine release
+      },
+    });
+  }, [triggerKey]);
+
+  // Click on a tine (fallback for non-pointer legacy inputs)
   const handleTineClick = (k: KalimbaKeyDef) => {
     triggerKey(k.index, k.pitch, k.isCenter ? 'orange' : k.index % 2 === 0 ? 'green' : 'orange');
     setShowCheer(true);
@@ -541,10 +566,21 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
             return (
               <button
                 key={k.index}
-                onClick={() => handleTineClick(k)}
+                onPointerDown={(e) => touchControllerRef.current.handlePointerDown(e, k.index)}
+                onPointerUp={(e) => touchControllerRef.current.handlePointerUp(e, k.index)}
+                onPointerCancel={(e) => touchControllerRef.current.handlePointerCancel(e, k.index)}
+                onLostPointerCapture={(e) => touchControllerRef.current.handleLostPointerCapture(e, k.index)}
+                onClick={() => {
+                  const lastTime = lastPointerTriggerTimeRef.current[k.index] || 0;
+                  if (Date.now() - lastTime < 350) return;
+                  handleTineClick(k);
+                }}
                 style={{
                   height: `${heightPercent * 0.95}%`,
                   maxHeight: '44vh',
+                  touchAction: 'none',
+                  userSelect: 'none',
+                  WebkitUserSelect: 'none',
                 }}
                 className={`flex-1 mx-0.5 sm:mx-1 rounded-b-2xl sm:rounded-b-3xl transition-all cursor-pointer flex flex-col justify-between items-center py-2 sm:py-3 select-none active:scale-98 ${
                   isGlowing
