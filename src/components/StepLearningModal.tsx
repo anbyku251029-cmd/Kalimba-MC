@@ -1,5 +1,22 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Play, Square, Volume2, Repeat, CheckCircle2, Mic, MicOff, Info, Sparkles, ArrowRight, RotateCcw } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import {
+  X,
+  Play,
+  Square,
+  Volume2,
+  Repeat,
+  CheckCircle2,
+  Mic,
+  MicOff,
+  Sparkles,
+  ArrowRight,
+  RotateCcw,
+  VolumeX,
+  FastForward,
+  Bookmark,
+  ChevronDown,
+  Layers,
+} from 'lucide-react';
 import { Song, KalimbaNote } from '../types/music';
 import { LearningStep, LearningProgressItem } from '../types/learningTypes';
 import { getSongLearningProgress, saveSongStepProgress } from '../utils/learningStorage';
@@ -7,6 +24,11 @@ import { audioEngine } from '../utils/audioEngine';
 import { pitchDetector } from '../utils/pitchDetectionService';
 import { PitchAnalysisResult } from '../types/microphoneAnalysisTypes';
 import { KALIMBA_KEYS, PITCH_TO_KEY } from '../constants/kalimbaKeys';
+import { extractMeasureData, getNotesInMeasureRange } from '../utils/measureParser';
+import { SongMeasureData, MeasureInfo } from '../types/measureTypes';
+import { speechNarrator } from '../utils/speechNarrationService';
+import { NARRATION_PHRASES } from '../constants/narrationPhrases';
+import { SpeechNarrationStatus } from '../types/speechNarrationTypes';
 
 interface StepLearningModalProps {
   song: Song;
@@ -27,9 +49,25 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
   const [isPlayingPreview, setIsPlayingPreview] = useState<boolean>(false);
   const previewTimerRef = useRef<number[]>([]);
 
-  // 3단계: 짧은 구간 반복 연습 상태
-  const [isLooping, setIsLooping] = useState<boolean>(false);
-  const loopTimerRef = useRef<number | null>(null);
+  // 마디 데이터 추출 (메모이제이션)
+  const measureData: SongMeasureData = useMemo(() => {
+    return extractMeasureData(song);
+  }, [song]);
+
+  // 마디 선택 상태 (1-based)
+  const [startMeasure, setStartMeasure] = useState<number>(1);
+  const [endMeasure, setEndMeasure] = useState<number>(() => Math.min(4, Math.max(1, measureData.totalMeasures)));
+
+  // 3단계: 구간 연습 세부 단계 (1: 먼저듣기, 2: 천천히따라하기, 3: 반복연습)
+  const [sectionSubStep, setSectionSubStep] = useState<'listen' | 'slow' | 'repeat'>('repeat');
+  const [repeatTargetCount, setRepeatTargetCount] = useState<1 | 3 | 5>(3);
+  const [currentRepeatIteration, setCurrentRepeatIteration] = useState<number>(0);
+  const [isSectionPlaying, setIsSectionPlaying] = useState<boolean>(false);
+  const sectionTimerRef = useRef<number[]>([]);
+  const sectionLoopTimeoutRef = useRef<number | null>(null);
+
+  // 음성 나레이션 상태
+  const [narrationStatus, setNarrationStatus] = useState<SpeechNarrationStatus>(() => speechNarrator.getStatus());
 
   // 마이크 음정 분석 (시험 기능) 상태
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
@@ -40,39 +78,69 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
   const playableNotes = song.notes.filter((n) => !n.isRest && n.pitch !== 'REST');
   const [selectedNoteIndex, setSelectedNoteIndex] = useState<number>(0);
 
-  // 마운트 시 타이머 및 마이크 정리
+  // 음성 나레이션 구독 및 마운트 시 초기 안내
   useEffect(() => {
+    const unsubscribe = speechNarrator.subscribe((status) => {
+      setNarrationStatus(status);
+    });
+
+    // 진입 환영 인사 발화
+    speechNarrator.speak(NARRATION_PHRASES.WELCOME);
+
     return () => {
-      stopPreviewAudio();
-      stopLoopAudio();
+      unsubscribe();
+      stopAllAudio();
       pitchDetector.stopListening();
+      speechNarrator.stop();
     };
   }, []);
 
-  const stopPreviewAudio = () => {
-    previewTimerRef.current.forEach((t) => clearTimeout(t));
-    previewTimerRef.current = [];
-    audioEngine.stopAll();
-    setIsPlayingPreview(false);
+  // 단계 변경 시 음성 나레이션 트리거
+  const handleStepChange = (newStep: LearningStep) => {
+    stopAllAudio();
+    setCurrentStep(newStep);
+
+    switch (newStep) {
+      case 'LISTENING':
+        speechNarrator.speak(NARRATION_PHRASES.STEP1_LISTEN);
+        break;
+      case 'KEY_EXPLORE':
+        speechNarrator.speak(NARRATION_PHRASES.STEP2_SLOW);
+        break;
+      case 'LOOP_PRACTICE':
+        speechNarrator.speak(NARRATION_PHRASES.CHOOSE_SECTION);
+        break;
+      case 'FULL_PRACTICE':
+        speechNarrator.speak(NARRATION_PHRASES.FULL_PRACTICE_START);
+        break;
+      case 'PRACTICE_RESULT':
+        speechNarrator.speak(NARRATION_PHRASES.STEP3_REPEAT_COMPLETE);
+        break;
+    }
   };
 
-  const stopLoopAudio = () => {
-    if (loopTimerRef.current) {
-      clearTimeout(loopTimerRef.current);
-      loopTimerRef.current = null;
+  const stopAllAudio = () => {
+    previewTimerRef.current.forEach((t) => clearTimeout(t));
+    previewTimerRef.current = [];
+    sectionTimerRef.current.forEach((t) => clearTimeout(t));
+    sectionTimerRef.current = [];
+    if (sectionLoopTimeoutRef.current) {
+      clearTimeout(sectionLoopTimeoutRef.current);
+      sectionLoopTimeoutRef.current = null;
     }
     audioEngine.stopAll();
-    setIsLooping(false);
+    setIsPlayingPreview(false);
+    setIsSectionPlaying(false);
   };
 
   // 1단계: 먼저 듣기 실행
   const handleTogglePreview = () => {
     if (isPlayingPreview) {
-      stopPreviewAudio();
+      stopAllAudio();
       return;
     }
 
-    stopLoopAudio();
+    stopAllAudio();
     setIsPlayingPreview(true);
     audioEngine.ensureReady();
 
@@ -96,56 +164,98 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
       setIsPlayingPreview(false);
       const updated = saveSongStepProgress(song.id, 'LISTENING', 8, selectedSpeed);
       setProgress(updated);
+      speechNarrator.speak(NARRATION_PHRASES.STEP1_AGAIN_HINT);
     }, totalMs);
     previewTimerRef.current.push(endTimer);
   };
 
-  // 3단계: 짧은 구간(앞 8박자) 반복 재생 루프
-  const handleToggleLoop = () => {
-    if (isLooping) {
-      stopLoopAudio();
+  // 선택된 마디 구간 계산
+  const currentRangeInfo = useMemo(() => {
+    return getNotesInMeasureRange(measureData, startMeasure, endMeasure);
+  }, [measureData, startMeasure, endMeasure]);
+
+  // 마디 범위 빠른 프리셋 적용
+  const applyMeasurePreset = (start: number, end: number) => {
+    stopAllAudio();
+    const safeStart = Math.max(1, Math.min(start, measureData.totalMeasures));
+    const safeEnd = Math.max(safeStart, Math.min(end, measureData.totalMeasures));
+    setStartMeasure(safeStart);
+    setEndMeasure(safeEnd);
+    speechNarrator.speak(`${safeStart}마디부터 ${safeEnd}마디까지 선택했어.`);
+  };
+
+  // 3단계: 마디 범위 구간 재생 (단일 실행 또는 반복 실행)
+  const handleToggleSectionPlay = (isRepeatMode: boolean = false) => {
+    if (isSectionPlaying) {
+      stopAllAudio();
       return;
     }
 
-    stopPreviewAudio();
-    setIsLooping(true);
-    audioEngine.ensureReady();
-
-    // 1~2마디(약 8박자 분량) 음표 추출
-    let countBeats = 0;
-    const loopNotes: KalimbaNote[] = [];
-    for (const n of song.notes) {
-      loopNotes.push(n);
-      countBeats += n.duration;
-      if (countBeats >= 8) break;
+    if (!currentRangeInfo.isValidRange || currentRangeInfo.notes.length === 0) {
+      speechNarrator.speak(NARRATION_PHRASES.NO_MEASURE_DATA);
+      return;
     }
 
-    const beatSeconds = (60 / song.tempoBpm) * (100 / selectedSpeed);
+    stopAllAudio();
+    setIsSectionPlaying(true);
+    audioEngine.ensureReady();
 
-    const playLoopIteration = () => {
-      let acc = 0;
-      loopNotes.forEach((n) => {
-        if (!n.isRest && n.pitch !== 'REST') {
-          const delayMs = acc * beatSeconds * 1000;
-          window.setTimeout(() => {
-            audioEngine.playNote(n.pitch, n.duration, song.tempoBpm, selectedSpeed / 100);
-          }, delayMs);
+    const sectionNotes = currentRangeInfo.notes;
+    const speed = selectedSpeed;
+    const beatSeconds = (60 / song.tempoBpm) * (100 / speed);
+
+    const totalIterations = isRepeatMode ? repeatTargetCount : 1;
+    let iteration = 0;
+
+    const runIteration = () => {
+      iteration++;
+      setCurrentRepeatIteration(iteration);
+
+      if (isRepeatMode) {
+        if (iteration === 1) {
+          speechNarrator.speak(NARRATION_PHRASES.STEP3_REPEAT_START);
+        } else {
+          speechNarrator.speak(`${iteration}번째 연습을 시작해 보자.`);
         }
-        acc += n.duration;
+      }
+
+      let accumulatedBeats = 0;
+      sectionNotes.forEach((n) => {
+        if (!n.isRest && n.pitch !== 'REST') {
+          const delayMs = accumulatedBeats * beatSeconds * 1000;
+          const timerId = window.setTimeout(() => {
+            audioEngine.playNote(n.pitch, n.duration, song.tempoBpm, speed / 100);
+          }, delayMs);
+          sectionTimerRef.current.push(timerId);
+        }
+        accumulatedBeats += n.duration;
       });
 
-      const loopCycleMs = acc * beatSeconds * 1000 + 500;
-      loopTimerRef.current = window.setTimeout(() => {
-        playLoopIteration();
-      }, loopCycleMs);
+      const iterationTotalMs = accumulatedBeats * beatSeconds * 1000 + 400;
+
+      if (iteration < totalIterations) {
+        // 다음 회차 반복 대기 (0.6초 호흡 간격)
+        sectionLoopTimeoutRef.current = window.setTimeout(() => {
+          runIteration();
+        }, iterationTotalMs + 600);
+      } else {
+        // 전체 반복 완료
+        const finishTimer = window.setTimeout(() => {
+          setIsSectionPlaying(false);
+          setCurrentRepeatIteration(0);
+          const elapsedSec = Math.round(accumulatedBeats * beatSeconds * totalIterations);
+          const updated = saveSongStepProgress(song.id, 'LOOP_PRACTICE', elapsedSec, speed);
+          setProgress(updated);
+          speechNarrator.speak(NARRATION_PHRASES.STEP3_REPEAT_COMPLETE);
+        }, iterationTotalMs);
+        sectionTimerRef.current.push(finishTimer);
+      }
     };
 
-    playLoopIteration();
-    const updated = saveSongStepProgress(song.id, 'LOOP_PRACTICE', 12, selectedSpeed);
-    setProgress(updated);
+    runIteration();
   };
 
-  // 마이크 분석 토글 (사용자 명시적 클릭 시에만 동작)
+  // 마이크 분석 토글
   const handleToggleMic = async () => {
     if (isMicActive) {
       pitchDetector.stopListening();
@@ -174,42 +284,78 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
   const stepsInfo = [
     { key: 'LISTENING', label: '1. 먼저 듣기', icon: '🎧', desc: '원곡의 멜로디를 편안하게 들어보아요' },
     { key: 'KEY_EXPLORE', label: '2. 건반 익히기', icon: '🎹', desc: '나오는 음표와 칼림바 건반 위치를 확인해요' },
-    { key: 'LOOP_PRACTICE', label: '3. 짧은 구간 연습', icon: '🔁', desc: '앞부분 2마디를 천천히 반복해서 익혀요' },
+    { key: 'LOOP_PRACTICE', label: '3. 마디 구간 연습', icon: '🔁', desc: '원하는 마디를 골라 집중 반복 연습해요' },
     { key: 'FULL_PRACTICE', label: '4. 곡 전체 연습', icon: '🌟', desc: '폭포수 게임으로 전체를 신나게 연주해요' },
     { key: 'PRACTICE_RESULT', label: '5. 연습 결과', icon: '🏆', desc: '오늘 열심히 연습한 기록을 확인해요' },
   ];
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-5 font-['Jua',sans-serif]">
-      <div className="bg-linear-to-b from-[#1b173d] to-[#0f0c29] border-2 border-cyan-400/50 rounded-3xl w-full max-w-3xl overflow-hidden shadow-[0_0_40px_rgba(34,211,238,0.3)] flex flex-col max-h-[92vh]">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between bg-white/5">
+      <div className="bg-linear-to-b from-[#1b173d] to-[#0f0c29] border-2 border-cyan-400/50 rounded-3xl w-full max-w-3xl overflow-hidden shadow-[0_0_40px_rgba(34,211,238,0.3)] flex flex-col max-h-[94vh]">
+        {/* Header Bar */}
+        <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between bg-white/5">
           <div className="flex items-center space-x-2.5">
             <span className="text-2xl sm:text-3xl">🌱</span>
             <div>
               <h2 className="text-lg sm:text-xl font-black text-white flex items-center space-x-2">
                 <span>{song.title}</span>
                 <span className="text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 px-2 py-0.5 rounded-full font-bold">
-                  단계별 맞춤 학습
+                  맞춤 마디 연습 & 유아 음성 가이드
                 </span>
               </h2>
               <p className="text-xs text-cyan-200/60 font-sans">
-                어린이가 스스로 칼림바를 쉽게 배울 수 있도록 5단계 가이드를 제공합니다.
+                총 {measureData.totalMeasures}마디 구성 · {song.timeSignature || '4/4'}박자 · {song.tempoBpm} BPM
               </p>
             </div>
           </div>
-          <button
-            onClick={() => {
-              stopPreviewAudio();
-              stopLoopAudio();
-              pitchDetector.stopListening();
-              onClose();
-            }}
-            className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition cursor-pointer"
-            title="닫기"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          <div className="flex items-center space-x-2">
+            {/* Narration Voice Controls */}
+            <div className="flex items-center space-x-1 bg-white/10 p-1 rounded-2xl border border-white/15">
+              <button
+                type="button"
+                onClick={() => {
+                  const newEnabled = !narrationStatus.state.includes('disabled') && narrationStatus.isSupported;
+                  speechNarrator.updateSettings({ enabled: !narrationStatus.isSupported ? false : !speechNarrator.getSettings().enabled });
+                }}
+                className={`p-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center space-x-1 ${
+                  speechNarrator.getSettings().enabled && narrationStatus.isSupported
+                    ? 'bg-amber-400 text-amber-950 font-black'
+                    : 'bg-white/10 text-white/50'
+                }`}
+                title={speechNarrator.getSettings().enabled ? '음성 나레이션 끄기' : '음성 나레이션 켜기'}
+              >
+                {speechNarrator.getSettings().enabled && narrationStatus.isSupported ? (
+                  <Volume2 className="w-4 h-4" />
+                ) : (
+                  <VolumeX className="w-4 h-4" />
+                )}
+                <span className="hidden sm:inline text-[11px]">음성 가이드</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => speechNarrator.replayLast()}
+                className="p-1.5 rounded-xl hover:bg-white/20 text-cyan-300 transition cursor-pointer"
+                title="음성 안내 다시 듣기"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+            </div>
+
+            <button
+              onClick={() => {
+                stopAllAudio();
+                pitchDetector.stopListening();
+                speechNarrator.stop();
+                onClose();
+              }}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition cursor-pointer"
+              title="닫기"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* 5 Steps Nav Bar */}
@@ -220,11 +366,7 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
             return (
               <button
                 key={s.key}
-                onClick={() => {
-                  stopPreviewAudio();
-                  stopLoopAudio();
-                  setCurrentStep(s.key as LearningStep);
-                }}
+                onClick={() => handleStepChange(s.key as LearningStep)}
                 className={`py-3 px-1 sm:px-2 text-center transition flex flex-col items-center justify-center space-y-1 relative cursor-pointer border-b-2 ${
                   isCurrent
                     ? 'border-cyan-400 bg-cyan-500/15 text-white font-black'
@@ -281,7 +423,7 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
 
               <div className="pt-4 flex justify-center">
                 <button
-                  onClick={() => setCurrentStep('KEY_EXPLORE')}
+                  onClick={() => handleStepChange('KEY_EXPLORE')}
                   className="text-xs text-cyan-300 hover:text-white flex items-center space-x-1 cursor-pointer font-bold"
                 >
                   <span>다음 단계: 건반 익히기로 이동</span>
@@ -371,7 +513,7 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
 
               <div className="flex justify-between items-center pt-2">
                 <button
-                  onClick={() => setCurrentStep('LISTENING')}
+                  onClick={() => handleStepChange('LISTENING')}
                   className="text-xs text-white/50 hover:text-white"
                 >
                   이전 단계
@@ -380,88 +522,223 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
                   onClick={() => {
                     const updated = saveSongStepProgress(song.id, 'KEY_EXPLORE', 10, selectedSpeed);
                     setProgress(updated);
-                    setCurrentStep('LOOP_PRACTICE');
+                    handleStepChange('LOOP_PRACTICE');
                   }}
                   className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-[#0c0827] text-xs font-black shadow-md cursor-pointer transition"
                 >
-                  다음 단계: 짧은 구간 연습
+                  다음 단계: 마디 구간 연습
                 </button>
               </div>
             </div>
           )}
 
-          {/* STEP 3: 짧은 구간 반복 연습 */}
+          {/* STEP 3: 마디 범위 선택형 구간 연습 (핵심 고도화) */}
           {currentStep === 'LOOP_PRACTICE' && (
-            <div className="space-y-4 text-center py-2">
-              <div className="w-16 h-16 rounded-3xl bg-purple-500/20 border border-purple-400/50 flex items-center justify-center mx-auto text-3xl shadow-[0_0_20px_rgba(168,85,247,0.3)]">
-                🔁
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-white">천천히 다시 연습해 봐요!</h3>
-                <p className="text-xs text-cyan-200/70 font-sans mt-1">
-                  어려운 곡도 2마디씩 나누어 반복하면 누구나 쉽게 칠 수 있어요.
+            <div className="space-y-4">
+              <div className="text-center">
+                <h3 className="text-xl font-black text-white flex items-center justify-center space-x-2">
+                  <span>어떤 부분을 연습할까요?</span>
+                  <span className="text-xs bg-purple-500/20 text-purple-300 border border-purple-400/40 px-2 py-0.5 rounded-full">
+                    마디 범위 선택
+                  </span>
+                </h3>
+                <p className="text-xs text-cyan-200/70 font-sans mt-0.5">
+                  어린이가 어려워하는 마디 구간을 자유롭게 골라 집중적으로 반복할 수 있습니다.
                 </p>
               </div>
 
-              {/* Speed Preset */}
-              <div className="flex items-center justify-center space-x-2 pt-2">
-                <span className="text-xs text-white/70">연습 템포:</span>
-                <button
-                  onClick={() => setSelectedSpeed(70)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold border transition cursor-pointer ${
-                    selectedSpeed === 70
-                      ? 'bg-amber-400 text-amber-950 border-amber-300 font-black'
-                      : 'bg-white/10 text-white/70 border-white/20'
-                  }`}
-                >
-                  🐢 천천히 (70%)
-                </button>
-                <button
-                  onClick={() => setSelectedSpeed(100)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold border transition cursor-pointer ${
-                    selectedSpeed === 100
-                      ? 'bg-cyan-400 text-[#0c0827] border-cyan-300 font-black'
-                      : 'bg-white/10 text-white/70 border-white/20'
-                  }`}
-                >
-                  🐰 보통 (100%)
-                </button>
-              </div>
+              {/* Measure Range Selector Control Card */}
+              <div className="bg-[#12163a] border border-cyan-400/30 rounded-2xl p-4 space-y-3">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  {/* Start & End Stepper */}
+                  <div className="flex items-center space-x-3 text-sm">
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-white/70 text-xs">시작 마디:</span>
+                      <select
+                        value={startMeasure}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setStartMeasure(val);
+                          if (val > endMeasure) setEndMeasure(val);
+                          stopAllAudio();
+                        }}
+                        className="bg-white/10 border border-white/20 rounded-xl px-2.5 py-1 text-white font-bold text-xs focus:border-cyan-400 focus:outline-hidden"
+                      >
+                        {Array.from({ length: measureData.totalMeasures }, (_, i) => i + 1).map((m) => (
+                          <option key={m} value={m} className="bg-[#12163a] text-white">
+                            {m}마디
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-              <div className="pt-2">
-                <button
-                  onClick={handleToggleLoop}
-                  className={`px-6 py-3 rounded-2xl font-black text-sm flex items-center space-x-2 mx-auto transition cursor-pointer shadow-lg active:scale-95 ${
-                    isLooping
-                      ? 'bg-amber-400 text-amber-950 shadow-[0_0_16px_rgba(251,191,36,0.5)] animate-pulse'
-                      : 'bg-linear-to-r from-purple-500 to-indigo-600 text-white shadow-[0_0_16px_rgba(168,85,247,0.4)] hover:brightness-110'
-                  }`}
-                >
-                  {isLooping ? (
-                    <>
-                      <Square className="w-4 h-4 fill-current" />
-                      <span>구간 반복 멈추기</span>
-                    </>
-                  ) : (
-                    <>
-                      <Repeat className="w-4 h-4" />
-                      <span>앞 2마디 구간 무한 반복 재생</span>
-                    </>
+                    <span className="text-white/40">~</span>
+
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-white/70 text-xs">마지막 마디:</span>
+                      <select
+                        value={endMeasure}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setEndMeasure(val);
+                          stopAllAudio();
+                        }}
+                        className="bg-white/10 border border-white/20 rounded-xl px-2.5 py-1 text-white font-bold text-xs focus:border-cyan-400 focus:outline-hidden"
+                      >
+                        {Array.from({ length: measureData.totalMeasures }, (_, i) => i + 1)
+                          .filter((m) => m >= startMeasure)
+                          .map((m) => (
+                            <option key={m} value={m} className="bg-[#12163a] text-white">
+                              {m}마디
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Range Info Badge */}
+                  <div className="flex items-center space-x-2 text-xs">
+                    <span className="bg-cyan-500/20 text-cyan-200 border border-cyan-400/40 px-2.5 py-1 rounded-xl font-bold">
+                      선택: {startMeasure} ~ {endMeasure}마디 ({endMeasure - startMeasure + 1}마디 분량)
+                    </span>
+                    <span className="bg-white/10 text-white/80 px-2 py-1 rounded-xl">
+                      총 {currentRangeInfo.notes.length}음 · {currentRangeInfo.totalBeats}박
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Measure Presets */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-white/10 text-xs">
+                  <span className="text-white/50 text-[11px] mr-1">빠른 선택:</span>
+                  <button
+                    type="button"
+                    onClick={() => applyMeasurePreset(1, measureData.totalMeasures)}
+                    className="px-2.5 py-1 rounded-lg bg-white/8 hover:bg-white/15 text-white/80 border border-white/15 transition cursor-pointer"
+                  >
+                    전체 ({measureData.totalMeasures}마디)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyMeasurePreset(1, Math.min(4, measureData.totalMeasures))}
+                    className="px-2.5 py-1 rounded-lg bg-white/8 hover:bg-white/15 text-white/80 border border-white/15 transition cursor-pointer"
+                  >
+                    앞부분 (1~4마디)
+                  </button>
+                  {measureData.totalMeasures >= 8 && (
+                    <button
+                      type="button"
+                      onClick={() => applyMeasurePreset(5, Math.min(8, measureData.totalMeasures))}
+                      className="px-2.5 py-1 rounded-lg bg-white/8 hover:bg-white/15 text-white/80 border border-white/15 transition cursor-pointer"
+                    >
+                      중간 (5~8마디)
+                    </button>
                   )}
-                </button>
+                  {measureData.totalMeasures >= 12 && (
+                    <button
+                      type="button"
+                      onClick={() => applyMeasurePreset(9, measureData.totalMeasures)}
+                      className="px-2.5 py-1 rounded-lg bg-white/8 hover:bg-white/15 text-white/80 border border-white/15 transition cursor-pointer"
+                    >
+                      끝부분 (9~{measureData.totalMeasures}마디)
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="flex justify-between items-center pt-4">
+              {/* 3-Step Practice Mode Sub-tabs & Controls */}
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  {/* Practice Speed Pill */}
+                  <div className="flex items-center space-x-1.5 text-xs">
+                    <span className="text-white/70">연습 템포:</span>
+                    {[50, 70, 100].map((spd) => (
+                      <button
+                        key={spd}
+                        onClick={() => setSelectedSpeed(spd)}
+                        className={`px-2.5 py-0.5 rounded-full font-bold border transition cursor-pointer ${
+                          selectedSpeed === spd
+                            ? 'bg-cyan-400 text-[#0c0827] border-cyan-300 font-black'
+                            : 'bg-white/10 text-white/70 border-white/20 hover:bg-white/15'
+                        }`}
+                      >
+                        {spd === 50 ? '🐢 50%' : spd === 70 ? '🐰 70%' : '🚀 100%'}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Repeat Count Options */}
+                  <div className="flex items-center space-x-1.5 text-xs">
+                    <span className="text-white/70">반복 횟수:</span>
+                    {[1, 3, 5].map((cnt) => (
+                      <button
+                        key={cnt}
+                        onClick={() => setRepeatTargetCount(cnt as 1 | 3 | 5)}
+                        className={`px-2.5 py-0.5 rounded-full font-bold border transition cursor-pointer ${
+                          repeatTargetCount === cnt
+                            ? 'bg-amber-400 text-amber-950 border-amber-300 font-black'
+                            : 'bg-white/10 text-white/70 border-white/20 hover:bg-white/15'
+                        }`}
+                      >
+                        {cnt}회 반복
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Big Action Buttons for 3-Step Practice */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  {/* Option A: 선택 구간 1회 먼저 듣기 */}
+                  <button
+                    onClick={() => handleToggleSectionPlay(false)}
+                    className={`p-3.5 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center space-x-2 transition cursor-pointer border active:scale-98 ${
+                      isSectionPlaying && currentRepeatIteration <= 1 && repeatTargetCount === 1
+                        ? 'bg-amber-400 text-amber-950 border-amber-300 animate-pulse'
+                        : 'bg-white/10 hover:bg-white/15 text-white border-white/20'
+                    }`}
+                  >
+                    <Volume2 className="w-4 h-4 text-cyan-300" />
+                    <span>선택 마디 1회 먼저 듣기</span>
+                  </button>
+
+                  {/* Option B: 지정 횟수만큼 구간 반복 연습 */}
+                  <button
+                    onClick={() => handleToggleSectionPlay(true)}
+                    className={`p-3.5 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center space-x-2 transition cursor-pointer border active:scale-98 shadow-md ${
+                      isSectionPlaying && repeatTargetCount > 1
+                        ? 'bg-amber-400 text-amber-950 border-amber-300 animate-pulse'
+                        : 'bg-linear-to-r from-purple-500 to-indigo-600 hover:from-purple-400 hover:to-indigo-500 text-white border-purple-400/50'
+                    }`}
+                  >
+                    {isSectionPlaying ? (
+                      <>
+                        <Square className="w-4 h-4 fill-current" />
+                        <span>
+                          반복 연습 멈추기 ({currentRepeatIteration} / {repeatTargetCount}회)
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Repeat className="w-4 h-4" />
+                        <span>
+                          {startMeasure}~{endMeasure}마디 {repeatTargetCount}회 반복 연습 시작!
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-2">
                 <button
-                  onClick={() => setCurrentStep('KEY_EXPLORE')}
+                  onClick={() => handleStepChange('KEY_EXPLORE')}
                   className="text-xs text-white/50 hover:text-white"
                 >
                   이전 단계
                 </button>
                 <button
                   onClick={() => {
-                    stopLoopAudio();
-                    setCurrentStep('FULL_PRACTICE');
+                    stopAllAudio();
+                    handleStepChange('FULL_PRACTICE');
                   }}
                   className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-[#0c0827] text-xs font-black shadow-md cursor-pointer transition"
                 >
@@ -511,7 +788,7 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
 
               <div className="pt-2">
                 <button
-                  onClick={() => setCurrentStep('PRACTICE_RESULT')}
+                  onClick={() => handleStepChange('PRACTICE_RESULT')}
                   className="text-xs text-cyan-300 hover:text-white font-bold"
                 >
                   연습 결과 및 성취 확인하기 👉
@@ -555,7 +832,7 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
 
               <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
                 <button
-                  onClick={() => setCurrentStep('LISTENING')}
+                  onClick={() => handleStepChange('LISTENING')}
                   className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition cursor-pointer flex items-center space-x-1"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
@@ -574,11 +851,11 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
           )}
 
           {/* 마이크 음정 분석 (시험 기능) 독립 패널 */}
-          <div className="mt-6 pt-5 border-t border-white/10 bg-white/3 rounded-2xl p-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+          <div className="mt-4 pt-3 border-t border-white/10 bg-white/3 rounded-2xl p-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
               <div className="flex items-center space-x-2">
                 <Mic className="w-4 h-4 text-amber-400" />
-                <h4 className="text-sm font-bold text-white flex items-center space-x-1.5">
+                <h4 className="text-xs sm:text-sm font-bold text-white flex items-center space-x-1.5">
                   <span>실제 칼림바 마이크 음정 분석</span>
                   <span className="text-[10px] bg-amber-400/20 text-amber-300 border border-amber-400/40 px-1.5 py-0.2 rounded-md font-bold">
                     기술 검증 시험용
@@ -609,31 +886,24 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
               </button>
             </div>
 
-            <p className="text-[11px] text-white/50 font-sans mb-3">
-              🛡️ 개인정보 보호: 마이크 소리는 서버로 전송되거나 저장되지 않으며, 컴퓨터 안에서 칼림바 소리만 실시간으로 확인합니다. 마이크를 켜지 않아도 모든 학습 기능은 100% 정상 작동합니다.
+            <p className="text-[11px] text-white/50 font-sans">
+              🛡️ 개인정보 보호: 마이크 소리는 서버로 전송되거나 저장되지 않으며, 컴퓨터 안에서 칼림바 소리만 실시간으로 확인합니다.
             </p>
-
-            {/* Mic Error */}
-            {micErrorMessage && (
-              <div className="bg-rose-500/20 border border-rose-400/40 rounded-xl p-2.5 text-xs text-rose-200 mb-2 font-sans">
-                ⚠️ {micErrorMessage}
-              </div>
-            )}
 
             {/* Mic Live Monitor */}
             {isMicActive && (
-              <div className="bg-[#0b0821] border border-cyan-400/30 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="mt-2.5 bg-[#0b0821] border border-cyan-400/30 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div>
-                  <span className="text-white/50 block text-[10px]">실시간 감지 상태</span>
+                  <span className="text-white/50 block text-[10px]">감지 상태</span>
                   <span className="font-bold text-white">
                     {micResult?.status === 'MATCH' ? (
                       <span className="text-emerald-300 font-black">🎯 건반 인식 성공!</span>
                     ) : micResult?.status === 'UNCERTAIN' ? (
-                      <span className="text-amber-300 font-bold">소리를 확실하게 분석 중...</span>
+                      <span className="text-amber-300 font-bold">분석 중...</span>
                     ) : micResult?.status === 'SILENCE' ? (
-                      <span className="text-white/40">칼림바 소리를 기다리는 중...</span>
+                      <span className="text-white/40">소리 대기 중...</span>
                     ) : (
-                      <span className="text-white/70">주변 소리 감지 중</span>
+                      <span className="text-white/70">소음 감지됨</span>
                     )}
                   </span>
                 </div>
@@ -658,16 +928,25 @@ export const StepLearningModal: React.FC<StepLearningModalProps> = ({
                     {micResult?.centsDeviation !== null ? `${micResult?.centsDeviation} cents` : '-'}
                   </span>
                 </div>
-
-                <div>
-                  <span className="text-white/50 block text-[10px]">분석 신뢰도</span>
-                  <span className="font-mono text-amber-300 font-bold">
-                    {micResult ? `${Math.round(micResult.confidence * 100)}%` : '0%'}
-                  </span>
-                </div>
               </div>
             )}
           </div>
+        </div>
+
+        {/* Bottom Narration Speech Bubble (Always visible for accessibility) */}
+        <div className="px-5 py-3 border-t border-white/10 bg-[#12163a] flex items-center space-x-3 text-xs">
+          <span className="text-lg animate-pulse shrink-0">🗣️</span>
+          <div className="flex-1">
+            <span className="text-[10px] text-cyan-300 font-bold block">선생님 음성 안내:</span>
+            <p className="text-white font-sans text-xs sm:text-sm line-clamp-1">
+              "{narrationStatus.currentText || NARRATION_PHRASES.WELCOME}"
+            </p>
+          </div>
+          {speechNarrator.getSettings().enabled && (
+            <span className="text-[10px] text-amber-300 bg-amber-400/20 px-2 py-0.5 rounded-full border border-amber-400/40 shrink-0 font-bold">
+              음성 재생 켜짐
+            </span>
+          )}
         </div>
       </div>
     </div>
