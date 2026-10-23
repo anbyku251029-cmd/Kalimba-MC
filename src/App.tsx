@@ -14,12 +14,28 @@ export default function App() {
   const [userProgress, setUserProgress] = useState(() => loadUserProgress());
   const [allSongs, setAllSongs] = useState<Song[]>(() => getAllSongsWithCustomHymns());
 
-  // Screen navigation state: defaults to 'select'
-  const [currentScreen, setCurrentScreen] = useState<AppScreen>('select');
+  // Screen navigation state: defaults to 'select' (URL 파라미터 ?song=hymn-301 등으로 즉시 진입 가능)
+  const [currentScreen, setCurrentScreen] = useState<AppScreen>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('song')) return 'practice';
+    }
+    return 'select';
+  });
 
   // Currently selected song & difficulty
   const [currentSong, setCurrentSong] = useState<Song>(() => {
     const initialList = getAllSongsWithCustomHymns();
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const songId = params.get('song');
+      if (songId) {
+        const found = initialList.find(
+          (s) => s.id === songId || (s.hymnNumber && `hymn-${s.hymnNumber}` === songId)
+        );
+        if (found) return found;
+      }
+    }
     const twinkle = initialList.find((s) => s.id === 'beginner-4');
     return twinkle || initialList[0];
   });

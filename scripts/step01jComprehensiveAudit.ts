@@ -66,9 +66,9 @@ assert(advAll50Plus, '고급곡 30곡 전수 playableNoteCount >= 50 달성');
 assert(advAllPitchValid, '고급곡 30곡 전수 17음 C장조 음역(C4~E6) 준수');
 console.log(`   * 고급곡 30곡 총 유효 연주 음표: ${totalAdvPlayableNotes}개 (곡당 평균 ${(totalAdvPlayableNotes / 30).toFixed(1)}개)`);
 
-// 3. 찬송가 20곡 절/후렴 정식 구조 및 3~4회 반복 묵상 연주 검증
-console.log('\n--- 3. 찬송가 20곡 절/후렴 및 3~4회 반복 묵상 연주 검증 ---');
-assert(DEFAULT_HYMN_SONGS.length === 20, '찬송가 수량 정확히 20곡');
+// 3. 찬송가 21곡(새찬송가 301장 포함) 절/후렴 정식 구조 및 3~4회 반복 묵상 연주 검증
+console.log('\n--- 3. 찬송가 21곡(새찬송가 301장 포함) 절/후렴 및 3~4회 반복 묵상 연주 검증 ---');
+assert(DEFAULT_HYMN_SONGS.length >= 20, `찬송가 수량 20곡 이상 확보 (현재: ${DEFAULT_HYMN_SONGS.length}곡)`);
 
 let hymnAllValid = true;
 let hymnRepeatValid = true;
@@ -102,15 +102,15 @@ DEFAULT_HYMN_SONGS.forEach((hymn, idx) => {
 
 assert(hymnAllValid, '찬송가 20곡 전수 정식 절/후렴 구조 및 17음 칼림바 음역 준수');
 assert(hymnRepeatValid, '찬송가 20곡 전수 repeatTimes >= 3 설정');
-console.log(`   * 찬송가 20곡 기본 연주 음표: ${totalHymnPlayableNotes}개 (곡당 평균 ${(totalHymnPlayableNotes / 20).toFixed(1)}개)`);
-console.log(`   * 3회 반복 묵상 연주 시 총 연주 음표: ${totalRepeatedHymnNotes}개 (곡당 평균 ${(totalRepeatedHymnNotes / 20).toFixed(1)}개)`);
+console.log(`   * 찬송가 ${DEFAULT_HYMN_SONGS.length}곡 기본 연주 음표: ${totalHymnPlayableNotes}개 (곡당 평균 ${(totalHymnPlayableNotes / DEFAULT_HYMN_SONGS.length).toFixed(1)}개)`);
+console.log(`   * 3회 반복 묵상 연주 시 총 연주 음표: ${totalRepeatedHymnNotes}개 (곡당 평균 ${(totalRepeatedHymnNotes / DEFAULT_HYMN_SONGS.length).toFixed(1)}개)`);
 
 // 4. 기존 카탈로그 보존성 검증
 console.log('\n--- 4. 기존 음악 카탈로그 보존성 검증 ---');
 assert(BEGINNER_SONGS.length === 30, '초급 30곡 온전히 보존');
 assert(INTERMEDIATE_SONGS.length === 30, '중급 30곡 온전히 보존');
 const totalSongs = BEGINNER_SONGS.length + INTERMEDIATE_SONGS.length + ADVANCED_SONGS.length + DEFAULT_HYMN_SONGS.length;
-assert(totalSongs === 110, `전체 곡 수 총 110곡 (30+30+30+20) 일치 (현재: ${totalSongs}곡)`);
+assert(totalSongs === 111, `전체 곡 수 총 111곡 (30+30+30+21) 일치 (현재: ${totalSongs}곡)`);
 
 console.log('\n====================================================');
 console.log(`🎉 검증 완료: PASS ${passCount}건 / FAIL ${failCount}건`);

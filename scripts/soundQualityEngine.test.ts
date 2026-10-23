@@ -129,10 +129,10 @@ function runTests() {
     assert(BEGINNER_SONGS.length === 30, '30 Beginner songs intact');
     assert(INTERMEDIATE_SONGS.length === 30, '30 Intermediate songs intact');
     assert(ADVANCED_SONGS.length === 30, '30 Advanced songs intact');
-    assert(DEFAULT_HYMN_SONGS.length === 20, '20 Default hymns intact');
+    assert(DEFAULT_HYMN_SONGS.length >= 20, '20+ Default hymns intact');
 
     const totalCount = BEGINNER_SONGS.length + INTERMEDIATE_SONGS.length + ADVANCED_SONGS.length + DEFAULT_HYMN_SONGS.length;
-    assert(totalCount === 110, 'Total song count is exactly 110');
+    assert(totalCount === 111, 'Total song count is exactly 111 (including Hymn 301)');
 
     // 악보 내용 불변 확인
     const airplane = BEGINNER_SONGS.find((s) => s.id === 'beginner-2');
