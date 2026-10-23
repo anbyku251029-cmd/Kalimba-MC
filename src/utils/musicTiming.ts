@@ -1,5 +1,6 @@
 import { Song, KalimbaNote } from '../types/music';
 import { PITCH_TO_KEY } from '../constants/kalimbaKeys';
+import { calculateDynamicAccent } from './audioEngine';
 
 export interface TimedNoteItem {
   id: string;
@@ -19,6 +20,8 @@ export interface TimedNoteItem {
   isRest: boolean;
   color: 'orange' | 'green' | 'blue' | 'teal';
   lyric?: string;
+  beatInMeasure?: number; // 마디 내 박자 위치 (0-based)
+  dynamicAccent?: number; // 0.65 ~ 1.0 음악적 강약 가중치
 }
 
 export interface SongTimingTimeline {
@@ -80,6 +83,11 @@ export function calculateSongTimeline(
       color = 'orange';
     }
 
+    const timeSig = song.timeSignature || '4/4';
+    const measureBeats = timeSig === '3/4' ? 3.0 : timeSig === '2/4' ? 2.0 : timeSig === '6/8' ? 3.0 : 4.0;
+    const beatInMeasure = Math.round((startBeat % measureBeats) * 100) / 100;
+    const dynamicAccent = calculateDynamicAccent(beatInMeasure, timeSig);
+
     const item: TimedNoteItem = {
       id: `${song.id}-note-${idx}-${note.pitch}`,
       originalIndex: idx,
@@ -98,6 +106,8 @@ export function calculateSongTimeline(
       isRest,
       color,
       lyric: note.lyric,
+      beatInMeasure,
+      dynamicAccent,
     };
 
     items.push(item);

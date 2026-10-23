@@ -79,10 +79,27 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
     };
   }, []);
 
-  // Sound and glowing tine trigger
+  // Sound and glowing tine trigger with dynamic musical expression
   const triggerKey = useCallback(
-    (keyIndex: number, pitch: string, color: 'green' | 'orange' | 'teal' = 'green', durationBeats: number = 1) => {
-      audioEngine.playNote(pitch, durationBeats, song.tempoBpm, speedPercentRef.current / 100);
+    (
+      keyIndex: number,
+      pitch: string,
+      color: 'green' | 'orange' | 'teal' = 'green',
+      durationBeats: number = 1,
+      velocity: number = 1.0,
+      beatInMeasure?: number
+    ) => {
+      audioEngine.playNote(
+        pitch,
+        durationBeats,
+        song.tempoBpm,
+        speedPercentRef.current / 100,
+        undefined,
+        undefined,
+        velocity,
+        song.timeSignature || '4/4',
+        beatInMeasure
+      );
 
       setActiveTineIndexes((prev) => ({
         ...prev,
@@ -99,7 +116,7 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         });
       }, durationMs);
     },
-    [song.tempoBpm]
+    [song.tempoBpm, song.timeSignature]
   );
 
   // Animation Loop
@@ -128,7 +145,9 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
               item.keyIndex,
               item.pitch,
               item.color === 'green' ? 'green' : item.color === 'orange' ? 'orange' : 'teal',
-              item.duration
+              item.duration,
+              item.dynamicAccent || 1.0,
+              item.beatInMeasure
             );
 
             setSparkleNoteIds((prev) => ({ ...prev, [item.id]: true }));
