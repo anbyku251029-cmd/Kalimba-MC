@@ -136,7 +136,7 @@ function runTests() {
 
     // 악보 내용 불변 확인
     const airplane = BEGINNER_SONGS.find((s) => s.id === 'beginner-2');
-    assert(airplane !== undefined && airplane.rawNotation.includes('3/떴 2/다 1/떴 2/다'), 'Airplane notation preserved');
+    assert(airplane !== undefined && Boolean(airplane.rawNotation?.includes('3/떴 2/다 1/떴 2/다')), 'Airplane notation preserved');
 
     const canon = ADVANCED_SONGS.find((s) => s.id === 'adv-2' || s.title.includes('캐논'));
     assert(canon !== undefined, 'Canon variation song preserved');

@@ -40,6 +40,22 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
   const [showCheer, setShowCheer] = useState<boolean>(false);
   const [cheerText, setCheerText] = useState<string>('잘했어요!');
 
+  // 반복 연주 (찬송가 기본 3회 권장, 1회/3회/4회 순환)
+  const defaultRepeats = song.repeatTimes || (song.level === 'hymn' ? 3 : 1);
+  const [targetRepeats, setTargetRepeats] = useState<number>(defaultRepeats);
+  const [currentIteration, setCurrentIteration] = useState<number>(1);
+  const currentIterationRef = useRef<number>(1);
+  const targetRepeatsRef = useRef<number>(defaultRepeats);
+  targetRepeatsRef.current = targetRepeats;
+
+  // 곡 변경 시 반복 상태 초기화
+  useEffect(() => {
+    const newDefault = song.repeatTimes || (song.level === 'hymn' ? 3 : 1);
+    setTargetRepeats(newDefault);
+    setCurrentIteration(1);
+    currentIterationRef.current = 1;
+  }, [song.id, song.repeatTimes, song.level]);
+
   // Animation and timing refs
   const animationFrameRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
@@ -177,8 +193,19 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         // Song end check: wait until the final note finishes ringing before showing completion modal
         const endBeatThreshold = timeline.audibleEndBeat;
         if (!hasCompletedRef.current && nextBeat > endBeatThreshold) {
-          hasCompletedRef.current = true;
-          if (onSongComplete) onSongComplete();
+          if (currentIterationRef.current < targetRepeatsRef.current) {
+            // 다음 회차 반복 연주 (찬송가 3~4회 묵상 루프)
+            currentIterationRef.current += 1;
+            setCurrentIteration(currentIterationRef.current);
+            currentBeatRef.current = INITIAL_LEAD_IN_BEATS;
+            setCurrentBeat(INITIAL_LEAD_IN_BEATS);
+            setCompletedNoteCount(0);
+            setCheerText(`은혜로운 ${currentIterationRef.current}번째 연주 시작! 💖`);
+            setShowCheer(true);
+          } else {
+            hasCompletedRef.current = true;
+            if (onSongComplete) onSongComplete();
+          }
         }
       }
 
@@ -232,6 +259,8 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
     lastTimeRef.current = null;
     currentBeatRef.current = INITIAL_LEAD_IN_BEATS;
     setCurrentBeat(INITIAL_LEAD_IN_BEATS);
+    currentIterationRef.current = 1;
+    setCurrentIteration(1);
     setCompletedNoteCount(0);
     setSparkleNoteIds({});
     setActiveTineIndexes({});
@@ -306,6 +335,20 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
               title="난이도 변경 (클릭)"
             >
               <span>{difficulty}</span>
+            </button>
+
+            {/* 반복 연주 배지 & 컨트롤 (찬송가 기본 3회 반복 권장, 클릭 시 1회 -> 3회 -> 4회 전환) */}
+            <button
+              onClick={() => {
+                const cycle = [1, 3, 4];
+                const nextIdx = (cycle.indexOf(targetRepeats) + 1) % cycle.length;
+                const nextVal = cycle[nextIdx];
+                setTargetRepeats(nextVal);
+              }}
+              className="bg-[#241e4b] hover:bg-[#342b6a] text-amber-300 border border-amber-400/40 px-3 py-0.5 rounded-full text-xs sm:text-sm font-bold shadow-xs transition cursor-pointer active:scale-95 flex items-center space-x-1"
+              title="반복 연주 횟수 변경 (클릭: 1회, 3회, 4회)"
+            >
+              <span>🔁 {targetRepeats > 1 ? `${currentIteration}/${targetRepeats}회` : '1회'}</span>
             </button>
           </div>
 

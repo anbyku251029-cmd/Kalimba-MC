@@ -31,6 +31,12 @@ export interface Song {
   hymnNumber?: number;
   isCustom?: boolean;
   rawNotation?: string;
+  verificationStatus?: 'SOURCE_VERIFIED' | 'ARRANGEMENT_VERIFIED' | 'REVIEW' | 'UNVERIFIED';
+  isArranged?: boolean;
+  composer?: string;
+  lyricist?: string;
+  playableNoteCount?: number;
+  repeatTimes?: number;
 }
 
 export interface UserProgress {
