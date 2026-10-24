@@ -24,6 +24,7 @@ interface SongSelectScreenProps {
   }) => void;
   onDeleteOrResetHymn: (id: string) => void;
   onOpenRecordingStudio?: () => void;
+  onOpenScoreStudio?: () => void;
 }
 
 type TabType = '쉬움' | '보통' | '어려움' | '찬송가' | '전체';
@@ -35,6 +36,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   onSaveHymn,
   onDeleteOrResetHymn,
   onOpenRecordingStudio,
+  onOpenScoreStudio,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('쉬움');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -275,6 +277,20 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
               >
                 <span className="text-base sm:text-lg">🎙️</span>
                 <span>나만의 녹음실</span>
+              </button>
+            )}
+
+            {onOpenScoreStudio && (
+              <button
+                onClick={() => {
+                  stopPreview();
+                  onOpenScoreStudio();
+                }}
+                className="px-4 py-2 rounded-2xl bg-gradient-to-r from-violet-500/25 to-indigo-500/25 hover:from-violet-500/40 hover:to-indigo-500/40 border-2 border-violet-400 text-violet-100 text-xs sm:text-sm font-extrabold flex items-center space-x-2 shadow-[0_0_20px_rgba(139,92,246,0.35)] transition cursor-pointer active:scale-95"
+                title="악보 사진/이미지 업로드 및 음표 추출·수정 에디터 열기"
+              >
+                <span className="text-base sm:text-lg">📷</span>
+                <span>악보 사진 등록</span>
               </button>
             )}
 

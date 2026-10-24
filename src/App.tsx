@@ -11,8 +11,9 @@ import { KalimbaGameWaterfall } from './components/KalimbaGameWaterfall';
 import { SongSelectScreen } from './components/SongSelectScreen';
 import { CompletionModal } from './components/CompletionModal';
 import { RecordingStudio } from './components/RecordingStudio';
+import { ScoreImageStudio } from './components/ScoreImageStudio';
 
-type AppScreen = 'select' | 'practice' | 'recording';
+type AppScreen = 'select' | 'practice' | 'recording' | 'scoreOcr';
 
 export default function App() {
   const [userProgress, setUserProgress] = useState(() => loadUserProgress());
@@ -184,6 +185,29 @@ export default function App() {
       {currentScreen === 'recording' ? (
         /* Recording Studio Screen */
         <RecordingStudio onBack={() => setCurrentScreen('select')} />
+      ) : currentScreen === 'scoreOcr' ? (
+        /* Score OCR & Image Editor Studio Screen */
+        <ScoreImageStudio
+          onBack={() => setCurrentScreen('select')}
+          onSaveSong={(songData) => {
+            const updatedList = saveOrUpdateHymn({
+              title: songData.title,
+              subTitle: songData.subTitle,
+              description: songData.description,
+              tempoBpm: songData.tempoBpm,
+              timeSignature: songData.timeSignature,
+              rawNotation: songData.rawNotation,
+            });
+            const refreshed = getAllSongsWithCustomHymns();
+            setAllSongs(refreshed);
+            const savedSong = refreshed.find((s) => s.title === songData.title) || refreshed[refreshed.length - 1];
+            if (savedSong) {
+              handleSelectSongAndStart(savedSong, songData.difficulty);
+            } else {
+              setCurrentScreen('select');
+            }
+          }}
+        />
       ) : currentScreen === 'select' ? (
         /* First Screen: Select song divided by 쉬움(30곡), 보통(30곡), 어려움(30곡), 찬송가 */
         <SongSelectScreen
@@ -196,6 +220,11 @@ export default function App() {
             audioEngine.ensureReady();
             audioEngine.stopAll();
             setCurrentScreen('recording');
+          }}
+          onOpenScoreStudio={() => {
+            audioEngine.ensureReady();
+            audioEngine.stopAll();
+            setCurrentScreen('scoreOcr');
           }}
         />
       ) : (
