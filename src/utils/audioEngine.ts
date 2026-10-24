@@ -424,6 +424,158 @@ class KalimbaAudioEngine {
     this.activeVoices.forEach((v) => v.stop());
     this.activeVoices = [];
   }
+
+  /**
+   * 녹음된 연주 음표 배열을 OfflineAudioContext를 통해 고음질 AudioBuffer로 비동기 렌더링합니다.
+   * 실시간 연주와 100% 동일한 어쿠스틱 비조화 배음과 잔향을 반영합니다.
+   */
+  public async renderNotesToAudioBuffer(
+    notes: { pitch: string; startTimeSec: number; durationSec?: number }[],
+    totalDurationSec: number,
+    sampleRate: number = 44100
+  ): Promise<AudioBuffer> {
+    const OfflineCtxClass =
+      window.OfflineAudioContext ||
+      (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+
+    if (!OfflineCtxClass) {
+      throw new Error('OfflineAudioContext is not supported in this browser.');
+    }
+
+    const safeDuration = Math.max(1.0, totalDurationSec + 1.8); // 마지막 음 잔향 여운 1.8초
+    const lengthInSamples = Math.ceil(safeDuration * sampleRate);
+    const offlineCtx = new OfflineCtxClass(2, lengthInSamples, sampleRate);
+
+    // 1. 마스터 컴프레서
+    const compressor = offlineCtx.createDynamicsCompressor();
+    compressor.threshold.setValueAtTime(-14, 0);
+    compressor.knee.setValueAtTime(6, 0);
+    compressor.ratio.setValueAtTime(3.5, 0);
+    compressor.attack.setValueAtTime(0.003, 0);
+    compressor.release.setValueAtTime(0.2, 0);
+
+    // 2. 마스터 게인
+    const masterGain = offlineCtx.createGain();
+    masterGain.gain.setValueAtTime(this.settings.volume, 0);
+
+    // 3. 잔향 네트워크
+    const delay1 = offlineCtx.createDelay();
+    delay1.delayTime.setValueAtTime(0.035, 0);
+    const delay2 = offlineCtx.createDelay();
+    delay2.delayTime.setValueAtTime(0.058, 0);
+    const reverbFilter = offlineCtx.createBiquadFilter();
+    reverbFilter.type = 'lowpass';
+    reverbFilter.frequency.setValueAtTime(2800, 0);
+    const reverbFeedback = offlineCtx.createGain();
+    reverbFeedback.gain.setValueAtTime(0.28, 0);
+    const reverbSendGain = offlineCtx.createGain();
+    reverbSendGain.gain.setValueAtTime(this.settings.reverbEnabled ? 0.32 : 0.0, 0);
+
+    reverbSendGain.connect(delay1);
+    delay1.connect(reverbFilter);
+    reverbFilter.connect(delay2);
+    delay2.connect(reverbFeedback);
+    reverbFeedback.connect(delay1);
+
+    reverbFilter.connect(compressor);
+    masterGain.connect(compressor);
+    compressor.connect(offlineCtx.destination);
+
+    // 4. 각 음표 물리 모델링 스케줄링
+    const timbre = this.settings.timbre;
+    const isClean = timbre === 'clean' || timbre === 'bright';
+    const isWarm = timbre === 'warm' || timbre === 'soft';
+    const isExpressive = timbre === 'expressive';
+
+    notes.forEach((item) => {
+      const keyDef = PITCH_TO_KEY.get(item.pitch);
+      if (!keyDef) return;
+
+      const startTime = Math.max(0, item.startTimeSec);
+      const baseFreq = keyDef.frequency;
+      const isHighPitch = keyDef.octaveLevel >= 1;
+
+      let baseSustain = 2.2;
+      if (isWarm) baseSustain = Math.max(0.7, 2.5 - (isHighPitch ? 1.3 : 0.6));
+      else if (isClean) baseSustain = Math.max(0.55, 1.9 - (isHighPitch ? 1.1 : 0.5));
+      else if (isExpressive) baseSustain = Math.max(0.65, 2.6 - (isHighPitch ? 1.2 : 0.5));
+
+      const holdDuration = Math.min(baseSustain, Math.max(0.35, (item.durationSec || 0.6) * 1.3));
+
+      // 기음 오실레이터
+      const osc1 = offlineCtx.createOscillator();
+      osc1.type = 'sine';
+      const bendFactor = isHighPitch
+        ? isClean ? 1.006 : isWarm ? 1.002 : 1.004
+        : isClean ? 1.015 : isWarm ? 1.006 : 1.012;
+      osc1.frequency.setValueAtTime(baseFreq * bendFactor, startTime);
+      osc1.frequency.exponentialRampToValueAtTime(baseFreq, startTime + (isHighPitch ? 0.007 : 0.014));
+
+      // 배음 오실레이터
+      const osc2 = offlineCtx.createOscillator();
+      osc2.type = 'sine';
+      const overtoneFreq = baseFreq * 5.4;
+      const nyquistLimit = sampleRate / 2 - 200;
+      osc2.frequency.setValueAtTime(overtoneFreq < nyquistLimit ? overtoneFreq : baseFreq * 2.0, startTime);
+
+      // 탄현 노이즈
+      const noiseDuration = isWarm ? 0.012 : isClean ? 0.022 : 0.018;
+      const bufferSize = Math.max(64, Math.floor(sampleRate * noiseDuration));
+      const noiseBuffer = offlineCtx.createBuffer(1, bufferSize, sampleRate);
+      const noiseData = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.28));
+      }
+      const noiseSource = offlineCtx.createBufferSource();
+      noiseSource.buffer = noiseBuffer;
+      const noiseFilter = offlineCtx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(Math.min(3800, baseFreq * (isClean ? 3.6 : 2.5)), startTime);
+      noiseFilter.Q.setValueAtTime(isClean ? 3.2 : 2.0, startTime);
+      const noiseGain = offlineCtx.createGain();
+      noiseGain.gain.setValueAtTime(0.0001, startTime);
+      noiseGain.gain.linearRampToValueAtTime(0.08, startTime + 0.002);
+      noiseGain.gain.exponentialRampToValueAtTime(0.0001, startTime + noiseDuration);
+
+      noiseSource.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(masterGain);
+
+      // 기음 게인
+      const gain1 = offlineCtx.createGain();
+      const peakVolume = isClean ? 0.65 : isWarm ? 0.58 : 0.68;
+      gain1.gain.setValueAtTime(0.0001, startTime);
+      gain1.gain.linearRampToValueAtTime(peakVolume, startTime + 0.0035);
+      gain1.gain.exponentialRampToValueAtTime(peakVolume * 0.35, startTime + holdDuration * 0.35);
+      gain1.gain.exponentialRampToValueAtTime(0.0001, startTime + holdDuration);
+
+      // 배음 게인
+      const gain2 = offlineCtx.createGain();
+      const overtonePeak = isWarm ? 0.07 : isClean ? 0.18 : 0.14;
+      const overtoneDecay = isWarm ? 0.09 : isClean ? 0.18 : 0.15;
+      gain2.gain.setValueAtTime(0.0001, startTime);
+      gain2.gain.linearRampToValueAtTime(overtonePeak, startTime + 0.002);
+      gain2.gain.exponentialRampToValueAtTime(0.0001, startTime + overtoneDecay);
+
+      osc1.connect(gain1);
+      gain1.connect(masterGain);
+      if (this.settings.reverbEnabled) {
+        gain1.connect(reverbSendGain);
+      }
+
+      osc2.connect(gain2);
+      gain2.connect(masterGain);
+
+      osc1.start(startTime);
+      osc1.stop(startTime + holdDuration + 0.05);
+      osc2.start(startTime);
+      osc2.stop(startTime + overtoneDecay + 0.05);
+      noiseSource.start(startTime);
+      noiseSource.stop(startTime + noiseDuration + 0.02);
+    });
+
+    return await offlineCtx.startRendering();
+  }
 }
 
 export const audioEngine = new KalimbaAudioEngine();

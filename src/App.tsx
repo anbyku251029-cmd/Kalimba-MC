@@ -10,8 +10,9 @@ import { GuguGagaSticker } from './types/practiceRewardTypes';
 import { KalimbaGameWaterfall } from './components/KalimbaGameWaterfall';
 import { SongSelectScreen } from './components/SongSelectScreen';
 import { CompletionModal } from './components/CompletionModal';
+import { RecordingStudio } from './components/RecordingStudio';
 
-type AppScreen = 'select' | 'practice';
+type AppScreen = 'select' | 'practice' | 'recording';
 
 export default function App() {
   const [userProgress, setUserProgress] = useState(() => loadUserProgress());
@@ -180,7 +181,10 @@ export default function App() {
 
   return (
     <div className="w-full min-h-screen bg-[#0c0827] overflow-y-auto overflow-x-hidden">
-      {currentScreen === 'select' ? (
+      {currentScreen === 'recording' ? (
+        /* Recording Studio Screen */
+        <RecordingStudio onBack={() => setCurrentScreen('select')} />
+      ) : currentScreen === 'select' ? (
         /* First Screen: Select song divided by 쉬움(30곡), 보통(30곡), 어려움(30곡), 찬송가 */
         <SongSelectScreen
           songs={allSongs}
@@ -188,6 +192,11 @@ export default function App() {
           completedSongIds={userProgress.completedSongIds}
           onSaveHymn={handleSaveHymn}
           onDeleteOrResetHymn={handleDeleteOrResetHymn}
+          onOpenRecordingStudio={() => {
+            audioEngine.ensureReady();
+            audioEngine.stopAll();
+            setCurrentScreen('recording');
+          }}
         />
       ) : (
         /* Practice Screen: 1:1 Waterfall Kalimba View */

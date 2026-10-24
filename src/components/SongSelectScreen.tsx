@@ -23,6 +23,7 @@ interface SongSelectScreenProps {
     rawNotation: string;
   }) => void;
   onDeleteOrResetHymn: (id: string) => void;
+  onOpenRecordingStudio?: () => void;
 }
 
 type TabType = '쉬움' | '보통' | '어려움' | '찬송가' | '전체';
@@ -33,6 +34,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   completedSongIds,
   onSaveHymn,
   onDeleteOrResetHymn,
+  onOpenRecordingStudio,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('쉬움');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -260,8 +262,22 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
             </div>
           </div>
 
-          {/* Quick Stats, Sound Settings, Validation Report & Hymn Update Buttons */}
+          {/* Quick Stats, Sound Settings, Validation Report, Hymn Update & Recording Studio Buttons */}
           <div className="flex flex-wrap items-center gap-2.5">
+            {onOpenRecordingStudio && (
+              <button
+                onClick={() => {
+                  stopPreview();
+                  onOpenRecordingStudio();
+                }}
+                className="px-4 py-2 rounded-2xl bg-gradient-to-r from-rose-500/25 to-pink-500/25 hover:from-rose-500/40 hover:to-pink-500/40 border-2 border-rose-400 text-rose-100 text-xs sm:text-sm font-extrabold flex items-center space-x-2 shadow-[0_0_20px_rgba(244,63,94,0.35)] transition cursor-pointer active:scale-95 animate-pulse"
+                title="어린이 가상 칼림바 자유 연주 녹음 및 WAV 다운로드 스튜디오 열기"
+              >
+                <span className="text-base sm:text-lg">🎙️</span>
+                <span>나만의 녹음실</span>
+              </button>
+            )}
+
             <button
               onClick={() => setIsValidationModalOpen(true)}
               className="px-3.5 py-2 rounded-2xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/60 text-indigo-200 text-xs sm:text-sm font-bold flex items-center space-x-1.5 shadow-[0_0_15px_rgba(99,102,241,0.25)] transition cursor-pointer active:scale-95"
