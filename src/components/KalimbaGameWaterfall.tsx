@@ -4,6 +4,10 @@ import { Song } from '../types/music';
 import { audioEngine } from '../utils/audioEngine';
 import { calculateSongTimeline, TimedNoteItem, INITIAL_LEAD_IN_BEATS } from '../utils/musicTiming';
 import { KalimbaTouchController } from '../utils/kalimbaTouchController';
+import { RhythmJudgeManager } from '../utils/rhythmJudge';
+import { ComboStats, CharacterState } from '../types/comboTypes';
+import { GuguGagaReaction } from './GuguGagaReaction';
+import { ComboDisplay } from './ComboDisplay';
 
 type FallingNoteItem = TimedNoteItem;
 
@@ -17,7 +21,7 @@ export interface KalimbaGameWaterfallProps {
   onOpenExitModal: () => void;
   onChangeSpeed: (speed: number) => void;
   onChangeDifficulty: (difficulty: string) => void;
-  onSongComplete?: () => void;
+  onSongComplete?: (stats?: ComboStats) => void;
 }
 
 export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
@@ -56,6 +60,31 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
     currentIterationRef.current = 1;
   }, [song.id, song.repeatTimes, song.level]);
 
+  // 단일 기준 공통 음악 타임라인 계산 (BPM, 음표 길이, 쉼표, 속도 완벽 일치)
+  const timeline = useMemo(
+    () => calculateSongTimeline(song, speedPercent),
+    [song, speedPercent]
+  );
+
+  const fallingNotes: FallingNoteItem[] = timeline.playableItems;
+  const totalNotes = timeline.totalPlayableNotes > 0 ? timeline.totalPlayableNotes : 1;
+  const progressPercent = Math.min(100, Math.round((completedNoteCount / totalNotes) * 100));
+
+  // STEP 02-A: 리듬 판정 및 콤보 시스템 상태
+  const judgeManagerRef = useRef<RhythmJudgeManager>(new RhythmJudgeManager(timeline.totalPlayableNotes));
+  const [comboStats, setComboStats] = useState<ComboStats>(() => judgeManagerRef.current.getStats());
+  const [characterState, setCharacterState] = useState<CharacterState>('idle');
+  const [characterMessage, setCharacterMessage] = useState<string>('');
+  const [ratingTrigger, setRatingTrigger] = useState<number>(0);
+
+  // 곡 또는 타임라인 변경 시 판정 엔진 리셋
+  useEffect(() => {
+    judgeManagerRef.current.reset(timeline.totalPlayableNotes);
+    setComboStats(judgeManagerRef.current.getStats());
+    setCharacterState('idle');
+    setCharacterMessage('');
+  }, [song.id, timeline.totalPlayableNotes]);
+
   // Animation and timing refs
   const animationFrameRef = useRef<number | null>(null);
   const lastTimeRef = useRef<number | null>(null);
@@ -71,16 +100,6 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
 
   const difficultyRef = useRef<string>(difficulty);
   difficultyRef.current = difficulty;
-
-  // 단일 기준 공통 음악 타임라인 계산 (BPM, 음표 길이, 쉼표, 속도 완벽 일치)
-  const timeline = useMemo(
-    () => calculateSongTimeline(song, speedPercent),
-    [song, speedPercent]
-  );
-
-  const fallingNotes: FallingNoteItem[] = timeline.playableItems;
-  const totalNotes = timeline.totalPlayableNotes > 0 ? timeline.totalPlayableNotes : 1;
-  const progressPercent = Math.min(100, Math.round((completedNoteCount / totalNotes) * 100));
 
   // 일시정지 및 언마운트 시 활성 보이스 및 잔향 정리
   useEffect(() => {
@@ -135,6 +154,57 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
     [song.tempoBpm, song.timeSignature]
   );
 
+  // 사용자 건반 입력 및 실시간 리듬 판정 처리 (STEP 02-A)
+  const handleUserNoteInput = useCallback(
+    (keyIndex: number, pitch: string) => {
+      const keyDef = PITCH_TO_KEY.get(pitch);
+      const color = keyDef ? (keyDef.isCenter ? 'orange' : keyIndex % 2 === 0 ? 'green' : 'orange') : 'green';
+      triggerKey(keyIndex, pitch, color);
+
+      // 리듬 판정 실행 (정확도 ±120ms PERFECT, ±220ms GREAT)
+      const speedMultiplier = speedPercentRef.current / 100;
+      const result = judgeManagerRef.current.registerUserInput(
+        keyIndex,
+        currentBeatRef.current,
+        song.tempoBpm,
+        speedMultiplier,
+        fallingNotes
+      );
+
+      if (result.rating !== 'NONE') {
+        const stats = judgeManagerRef.current.getStats();
+        setComboStats(stats);
+        setRatingTrigger((prev) => prev + 1);
+
+        if (result.targetNoteId) {
+          setSparkleNoteIds((prev) => ({ ...prev, [result.targetNoteId!]: true }));
+          setTimeout(() => {
+            setSparkleNoteIds((prev) => {
+              const copy = { ...prev };
+              delete copy[result.targetNoteId!];
+              return copy;
+            });
+          }, 600);
+        }
+
+        // 구구가가 캐릭터 상태 업데이트
+        if (result.rating === 'PERFECT' || result.rating === 'GREAT') {
+          if (stats.currentCombo >= 5 && stats.currentCombo % 5 === 0) {
+            setCharacterState('combo');
+            setCharacterMessage(`${stats.currentCombo} 콤보! 대단해요! 🚀`);
+          } else {
+            setCharacterState('happy');
+            setCharacterMessage(result.rating === 'PERFECT' ? '완벽해요! ⭐' : '좋아요! 👍');
+          }
+        } else if (result.rating === 'MISS') {
+          setCharacterState('encourage');
+          setCharacterMessage('괜찮아요! 다음 음표를 노려봐요 💕');
+        }
+      }
+    },
+    [fallingNotes, song.tempoBpm, triggerKey]
+  );
+
   // Animation Loop
   useEffect(() => {
     const loop = (timestamp: number) => {
@@ -154,23 +224,36 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         currentBeatRef.current = nextBeat;
         setCurrentBeat(nextBeat);
 
-        // Check note hits on the cyan strike line
+        // 타격선을 지나쳐버린 음표(Pass Miss) 자동 판정 (쉼표는 자동 제외)
+        const missedIds = judgeManagerRef.current.checkPassedNotes(
+          nextBeat,
+          song.tempoBpm,
+          speedPercentRef.current / 100,
+          fallingNotes
+        );
+        if (missedIds.length > 0) {
+          const stats = judgeManagerRef.current.getStats();
+          setComboStats(stats);
+          setRatingTrigger((prev) => prev + 1);
+          setCharacterState('encourage');
+          setCharacterMessage('아쉬워요! 박자에 맞춰 다시 도전! 🎶');
+        }
+
+        // 가이드 사운드 및 타격선 도달 음표 스파클 효과 (사용자가 이미 친 음표는 중복 타격 방지)
         fallingNotes.forEach((item) => {
           if (nextBeat >= item.beatTime && prevBeat < item.beatTime) {
-            triggerKey(
-              item.keyIndex,
-              item.pitch,
-              item.color === 'green' ? 'green' : item.color === 'orange' ? 'orange' : 'teal',
-              item.duration,
-              item.dynamicAccent || 1.0,
-              item.beatInMeasure
-            );
+            if (!judgeManagerRef.current.isNoteJudged(item.id)) {
+              triggerKey(
+                item.keyIndex,
+                item.pitch,
+                item.color === 'green' ? 'green' : item.color === 'orange' ? 'orange' : 'teal',
+                item.duration,
+                item.dynamicAccent || 1.0,
+                item.beatInMeasure
+              );
+            }
 
             setSparkleNoteIds((prev) => ({ ...prev, [item.id]: true }));
-            setShowCheer(true);
-            const cheers = ['잘했어요!', '완벽해요!', '참 잘했어요! ⭐', '멋져요!'];
-            setCheerText(cheers[Math.floor(Math.random() * cheers.length)]);
-
             setTimeout(() => {
               setSparkleNoteIds((prev) => {
                 const copy = { ...prev };
@@ -202,9 +285,14 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
             setCompletedNoteCount(0);
             setCheerText(`은혜로운 ${currentIterationRef.current}번째 연주 시작! 💖`);
             setShowCheer(true);
+            setCharacterState('happy');
+            setCharacterMessage(`은혜로운 ${currentIterationRef.current}번째 연주 시작! 💖`);
           } else {
             hasCompletedRef.current = true;
-            if (onSongComplete) onSongComplete();
+            setCharacterState('celebrate');
+            setCharacterMessage('와아! 멋지게 완주했어요! 🏆');
+            const finalStats = judgeManagerRef.current.getStats();
+            if (onSongComplete) onSongComplete(finalStats);
           }
         }
       }
@@ -240,18 +328,14 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         const pitch = numMap[e.key];
         const keyDef = PITCH_TO_KEY.get(pitch);
         if (keyDef) {
-          triggerKey(
-            keyDef.index,
-            pitch,
-            keyDef.isCenter ? 'orange' : keyDef.index % 2 === 0 ? 'green' : 'orange'
-          );
+          handleUserNoteInput(keyDef.index, pitch);
           setShowCheer(true);
         }
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [triggerKey]);
+  }, [handleUserNoteInput]);
 
   // Restart handler
   const handleRestartGame = () => {
@@ -265,6 +349,10 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
     setSparkleNoteIds({});
     setActiveTineIndexes({});
     setShowCheer(false);
+    judgeManagerRef.current.reset(timeline.totalPlayableNotes);
+    setComboStats(judgeManagerRef.current.getStats());
+    setCharacterState('idle');
+    setCharacterMessage('');
     onRestart();
   };
 
@@ -278,11 +366,7 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         const k = KALIMBA_KEYS[keyIndex];
         if (k) {
           lastPointerTriggerTimeRef.current[keyIndex] = Date.now();
-          triggerKey(
-            k.index,
-            k.pitch,
-            k.isCenter ? 'orange' : k.index % 2 === 0 ? 'green' : 'orange'
-          );
+          handleUserNoteInput(k.index, k.pitch);
           setShowCheer(true);
         }
       },
@@ -290,11 +374,11 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         // Tine release
       },
     });
-  }, [triggerKey]);
+  }, [handleUserNoteInput]);
 
   // Click on a tine (fallback for non-pointer legacy inputs)
   const handleTineClick = (k: KalimbaKeyDef) => {
-    triggerKey(k.index, k.pitch, k.isCenter ? 'orange' : k.index % 2 === 0 ? 'green' : 'orange');
+    handleUserNoteInput(k.index, k.pitch);
     setShowCheer(true);
   };
 
@@ -506,6 +590,22 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
           </div>
         </div>
       </header>
+
+      {/* STEP 02-A: 구구가가 캐릭터 인터랙티브 반응 위젯 (상단 우측 안전 구역) */}
+      <div className="absolute right-4 sm:right-8 top-24 z-30 pointer-events-none">
+        <GuguGagaReaction
+          state={characterState}
+          combo={comboStats.currentCombo}
+          message={characterMessage}
+        />
+      </div>
+
+      {/* STEP 02-A: 리듬 판정 & 콤보 팝업 디스플레이 (화면 중앙 상단) */}
+      <ComboDisplay
+        combo={comboStats.currentCombo}
+        lastRating={comboStats.lastRating}
+        ratingTrigger={ratingTrigger}
+      />
 
       {/* CHEER BADGE (Right side: ⭐ 잘했어요!) */}
       {showCheer && (

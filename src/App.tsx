@@ -4,6 +4,9 @@ import { getAllSongsWithCustomHymns } from './data/songs';
 import { saveOrUpdateHymn, deleteOrResetHymn } from './data/hymns';
 import { audioEngine } from './utils/audioEngine';
 import { loadUserProgress, recordSongCompletion } from './utils/storage';
+import { recordSectionPracticeCompletion } from './utils/practiceRewardService';
+import { ComboStats } from './types/comboTypes';
+import { GuguGagaSticker } from './types/practiceRewardTypes';
 import { KalimbaGameWaterfall } from './components/KalimbaGameWaterfall';
 import { SongSelectScreen } from './components/SongSelectScreen';
 import { CompletionModal } from './components/CompletionModal';
@@ -44,9 +47,11 @@ export default function App() {
   const [speedPercent, setSpeedPercent] = useState<number>(70);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
 
-  // Completion modal state
+  // Completion modal state & stats
   const [showCompletionModal, setShowCompletionModal] = useState<boolean>(false);
   const [restartCount, setRestartCount] = useState<number>(0);
+  const [lastCompletionStats, setLastCompletionStats] = useState<ComboStats | undefined>(undefined);
+  const [newlyUnlockedStickers, setNewlyUnlockedStickers] = useState<GuguGagaSticker[]>([]);
 
   // Play/Pause
   const handleTogglePlay = useCallback(() => {
@@ -63,13 +68,30 @@ export default function App() {
     setIsPlaying(true);
   }, []);
 
-  // Song completion handler
-  const handleSongComplete = useCallback(() => {
-    setIsPlaying(false);
-    const updated = recordSongCompletion(currentSong.id, loadUserProgress());
-    setUserProgress(updated);
-    setShowCompletionModal(true);
-  }, [currentSong.id]);
+  // Song completion handler (STEP 02-A: 리듬 콤보 통계 및 스티커 보상 연동)
+  const handleSongComplete = useCallback(
+    (stats?: ComboStats) => {
+      setIsPlaying(false);
+      const updated = recordSongCompletion(currentSong.id, loadUserProgress());
+      setUserProgress(updated);
+      setLastCompletionStats(stats);
+
+      // 구구가가 스티커 보상 시스템 연동 (완주 성공 시 연습 세션 기록)
+      try {
+        const rewardResult = recordSectionPracticeCompletion(currentSong.id, 1, 999);
+        if (rewardResult.newlyUnlockedStickers && rewardResult.newlyUnlockedStickers.length > 0) {
+          setNewlyUnlockedStickers(rewardResult.newlyUnlockedStickers);
+        } else {
+          setNewlyUnlockedStickers([]);
+        }
+      } catch (err) {
+        console.warn('Reward processing error', err);
+      }
+
+      setShowCompletionModal(true);
+    },
+    [currentSong.id]
+  );
 
   // Select song from initial selection screen and enter practice screen
   const handleSelectSongAndStart = useCallback(
@@ -188,6 +210,8 @@ export default function App() {
           {showCompletionModal && (
             <CompletionModal
               song={currentSong}
+              stats={lastCompletionStats}
+              newlyUnlockedStickers={newlyUnlockedStickers}
               onReplay={() => {
                 setShowCompletionModal(false);
                 handleRestart();
