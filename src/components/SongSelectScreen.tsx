@@ -27,6 +27,7 @@ interface SongSelectScreenProps {
   onDeleteOrResetHymn: (id: string) => void;
   onOpenRecordingStudio?: () => void;
   onOpenScoreStudio?: () => void;
+  onOpenHummingModal?: () => void;
 }
 
 type TabType = '쉬움' | '보통' | '어려움' | '찬송가' | '전체';
@@ -39,6 +40,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   onDeleteOrResetHymn,
   onOpenRecordingStudio,
   onOpenScoreStudio,
+  onOpenHummingModal,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('쉬움');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -295,6 +297,20 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
               >
                 <span className="text-base sm:text-lg">📷</span>
                 <span>악보 사진 등록</span>
+              </button>
+            )}
+
+            {onOpenHummingModal && (
+              <button
+                onClick={() => {
+                  stopPreview();
+                  onOpenHummingModal();
+                }}
+                className="px-4 py-2 rounded-2xl bg-gradient-to-r from-pink-500/25 to-purple-500/25 hover:from-pink-500/40 hover:to-purple-500/40 border-2 border-pink-400 text-pink-100 text-xs sm:text-sm font-extrabold flex items-center space-x-2 shadow-[0_0_20px_rgba(236,72,153,0.35)] transition cursor-pointer active:scale-95"
+                title="마이크로 흥얼거린 멜로디(허밍)를 17음 칼림바 악보로 자동 변환하기"
+              >
+                <span className="text-base sm:text-lg">🎤</span>
+                <span>허밍 채보</span>
               </button>
             )}
 

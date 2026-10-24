@@ -13,6 +13,7 @@ import { SongSelectScreen } from './components/SongSelectScreen';
 import { CompletionModal } from './components/CompletionModal';
 import { RecordingStudio } from './components/RecordingStudio';
 import { ScoreImageStudio } from './components/ScoreImageStudio';
+import { HummingTranscriptionModal } from './components/HummingTranscriptionModal';
 import { PwaStatusBanner } from './components/PwaStatusBanner';
 
 type AppScreen = 'select' | 'practice' | 'recording' | 'scoreOcr';
@@ -53,6 +54,7 @@ export default function App() {
 
   // Completion modal state & stats
   const [showCompletionModal, setShowCompletionModal] = useState<boolean>(false);
+  const [isHummingModalOpen, setIsHummingModalOpen] = useState<boolean>(false);
   const [restartCount, setRestartCount] = useState<number>(0);
   const [lastCompletionStats, setLastCompletionStats] = useState<ComboStats | undefined>(undefined);
   const [newlyUnlockedStickers, setNewlyUnlockedStickers] = useState<GuguGagaSticker[]>([]);
@@ -250,6 +252,11 @@ export default function App() {
             audioEngine.stopAll();
             setCurrentScreen('scoreOcr');
           }}
+          onOpenHummingModal={() => {
+            audioEngine.ensureReady();
+            audioEngine.stopAll();
+            setIsHummingModalOpen(true);
+          }}
         />
       ) : (
         /* Practice Screen: 1:1 Waterfall Kalimba View */
@@ -294,6 +301,28 @@ export default function App() {
           )}
         </>
       )}
+
+      {/* STEP 02-G: 허밍 채보 및 AI 악보 변환 모달 */}
+      <HummingTranscriptionModal
+        isOpen={isHummingModalOpen}
+        onClose={() => setIsHummingModalOpen(false)}
+        onSaveSong={(songData) => {
+          saveOrUpdateHymn({
+            title: songData.title,
+            subTitle: songData.subTitle,
+            description: songData.description,
+            tempoBpm: songData.tempoBpm,
+            timeSignature: songData.timeSignature,
+            rawNotation: songData.rawNotation,
+          });
+          const refreshed = getAllSongsWithCustomHymns();
+          setAllSongs(refreshed);
+          const savedSong = refreshed.find((s) => s.title === songData.title) || refreshed[refreshed.length - 1];
+          if (savedSong) {
+            handleSelectSongAndStart(savedSong, songData.difficulty);
+          }
+        }}
+      />
     </div>
   );
 }
