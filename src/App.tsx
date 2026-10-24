@@ -13,6 +13,7 @@ import { SongSelectScreen } from './components/SongSelectScreen';
 import { CompletionModal } from './components/CompletionModal';
 import { RecordingStudio } from './components/RecordingStudio';
 import { ScoreImageStudio } from './components/ScoreImageStudio';
+import { PwaStatusBanner } from './components/PwaStatusBanner';
 
 type AppScreen = 'select' | 'practice' | 'recording' | 'scoreOcr';
 
@@ -202,6 +203,9 @@ export default function App() {
 
   return (
     <div className="w-full min-h-screen bg-[#0c0827] overflow-y-auto overflow-x-hidden">
+      {/* PWA 오프라인 감지, 설치 및 업데이트 배너 */}
+      <PwaStatusBanner />
+
       {currentScreen === 'recording' ? (
         /* Recording Studio Screen */
         <RecordingStudio onBack={() => setCurrentScreen('select')} />

@@ -1,0 +1,33 @@
+{
+  "name": "우리 아이 칼림바 음악 교실",
+  "short_name": "칼림바 교실",
+  "description": "어린이가 혼자서도 쉽게 실제 칼림바를 따라 연주할 수 있는 인터랙티브 숫자 악보와 음악 교실",
+  "lang": "ko-KR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0c0827",
+  "theme_color": "#0c0827",
+  "categories": ["education", "music", "kids"],
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable any"
+    }
+  ]
+}
