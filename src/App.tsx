@@ -5,6 +5,7 @@ import { saveOrUpdateHymn, deleteOrResetHymn } from './data/hymns';
 import { audioEngine } from './utils/audioEngine';
 import { loadUserProgress, recordSongCompletion } from './utils/storage';
 import { recordSectionPracticeCompletion } from './utils/practiceRewardService';
+import { learningSessionManager } from './utils/learningSessionManager';
 import { ComboStats } from './types/comboTypes';
 import { GuguGagaSticker } from './types/practiceRewardTypes';
 import { KalimbaGameWaterfall } from './components/KalimbaGameWaterfall';
@@ -58,7 +59,15 @@ export default function App() {
   // Play/Pause
   const handleTogglePlay = useCallback(() => {
     audioEngine.ensureReady();
-    setIsPlaying((prev) => !prev);
+    setIsPlaying((prev) => {
+      const next = !prev;
+      if (!next) {
+        learningSessionManager.pauseSession();
+      } else {
+        learningSessionManager.resumeSession();
+      }
+      return next;
+    });
   }, []);
 
   // Restart from the very beginning of the song
@@ -66,17 +75,22 @@ export default function App() {
     audioEngine.ensureReady();
     audioEngine.stopAll();
     setShowCompletionModal(false);
+    learningSessionManager.abandonActiveSession();
+    learningSessionManager.startSession(currentSong.id, currentSong.title, difficulty, speedPercent);
     setRestartCount((prev) => prev + 1);
     setIsPlaying(true);
-  }, []);
+  }, [currentSong.id, currentSong.title, difficulty, speedPercent]);
 
-  // Song completion handler (STEP 02-A: 리듬 콤보 통계 및 스티커 보상 연동)
+  // Song completion handler (STEP 02-A: 리듬 콤보 통계 및 스티커 보상 연동, STEP 02-E: 완주 기록)
   const handleSongComplete = useCallback(
     (stats?: ComboStats) => {
       setIsPlaying(false);
       const updated = recordSongCompletion(currentSong.id, loadUserProgress());
       setUserProgress(updated);
       setLastCompletionStats(stats);
+
+      // STEP 02-E: 실제 완주 세션 기록 및 통계 확정
+      learningSessionManager.completeSession(stats);
 
       // 구구가가 스티커 보상 시스템 연동 (완주 성공 시 연습 세션 기록)
       try {
@@ -103,10 +117,15 @@ export default function App() {
       setShowCompletionModal(false);
       setCurrentSong(song);
       setDifficulty(newDiff);
-      if (newDiff === '쉬움') setSpeedPercent(70);
-      else if (newDiff === '어려움') setSpeedPercent(130);
-      else if (newDiff === '찬송가') setSpeedPercent(90);
-      else setSpeedPercent(100);
+      let calculatedSpeed = 100;
+      if (newDiff === '쉬움') calculatedSpeed = 70;
+      else if (newDiff === '어려움') calculatedSpeed = 130;
+      else if (newDiff === '찬송가') calculatedSpeed = 90;
+      setSpeedPercent(calculatedSpeed);
+
+      // STEP 02-E: 새로운 연습 세션 시작
+      learningSessionManager.startSession(song.id, song.title, newDiff, calculatedSpeed);
+
       setRestartCount((prev) => prev + 1);
       setIsPlaying(true);
       setCurrentScreen('practice');
@@ -157,6 +176,7 @@ export default function App() {
     audioEngine.stopAll();
     setIsPlaying(false);
     setShowCompletionModal(false);
+    learningSessionManager.abandonActiveSession();
     setCurrentScreen('select');
   }, []);
 

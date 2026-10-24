@@ -6,6 +6,8 @@ import { SoundSettingsModal } from './SoundSettingsModal';
 import { ValidationReportModal } from './ValidationReportModal';
 import { StepLearningModal } from './StepLearningModal';
 import { StickerRewardBoardModal } from './StickerRewardBoardModal';
+import { ChildGrowthModal } from './ChildGrowthModal';
+import { ParentDashboardModal } from './ParentDashboardModal';
 import { audioEngine } from '../utils/audioEngine';
 
 interface SongSelectScreenProps {
@@ -44,6 +46,8 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   const [isSoundSettingsOpen, setIsSoundSettingsOpen] = useState<boolean>(false);
   const [isValidationModalOpen, setIsValidationModalOpen] = useState<boolean>(false);
   const [isRewardModalOpen, setIsRewardModalOpen] = useState<boolean>(false);
+  const [isChildGrowthOpen, setIsChildGrowthOpen] = useState<boolean>(false);
+  const [isParentDashboardOpen, setIsParentDashboardOpen] = useState<boolean>(false);
   const [learningSong, setLearningSong] = useState<Song | null>(null);
   const [editingHymn, setEditingHymn] = useState<Song | null>(null);
 
@@ -330,6 +334,26 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
             >
               <span className="text-base">🎨</span>
               <span>구구가가 스티커 보상판</span>
+            </button>
+
+            {/* 어린이용 성장 기록 버튼 */}
+            <button
+              onClick={() => setIsChildGrowthOpen(true)}
+              className="px-3.5 py-2 rounded-2xl bg-gradient-to-r from-emerald-500/25 to-teal-500/25 hover:from-emerald-500/40 hover:to-teal-500/40 border-2 border-emerald-400/70 text-emerald-100 text-xs sm:text-sm font-extrabold flex items-center space-x-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)] transition cursor-pointer active:scale-95"
+              title="오늘의 연습 시간과 목표 달성 성장 기록 확인하기"
+            >
+              <span className="text-base">🌱</span>
+              <span>나의 성장 기록</span>
+            </button>
+
+            {/* 학부모 대시보드 버튼 */}
+            <button
+              onClick={() => setIsParentDashboardOpen(true)}
+              className="px-3.5 py-2 rounded-2xl bg-gradient-to-r from-indigo-500/25 to-blue-500/25 hover:from-indigo-500/40 hover:to-blue-500/40 border-2 border-indigo-400/70 text-indigo-100 text-xs sm:text-sm font-extrabold flex items-center space-x-1.5 shadow-[0_0_15px_rgba(99,102,241,0.3)] transition cursor-pointer active:scale-95"
+              title="학부모 학습 대시보드 (주간 그래프, 완주 곡 수, 통계)"
+            >
+              <span className="text-base">📊</span>
+              <span>학부모 대시보드</span>
             </button>
 
             <div className="flex items-center space-x-3 bg-white/5 border border-white/10 px-4 py-2 rounded-2xl shadow-inner">
@@ -725,6 +749,16 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
         isOpen={isRewardModalOpen}
         onClose={() => setIsRewardModalOpen(false)}
       />
+
+      {/* 어린이용 성장 기록 모달 */}
+      {isChildGrowthOpen && (
+        <ChildGrowthModal onClose={() => setIsChildGrowthOpen(false)} />
+      )}
+
+      {/* 학부모 학습 대시보드 모달 */}
+      {isParentDashboardOpen && (
+        <ParentDashboardModal onClose={() => setIsParentDashboardOpen(false)} />
+      )}
     </div>
   );
 };
