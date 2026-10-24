@@ -441,6 +441,32 @@ export const DEFAULT_HYMN_SONGS: Song[] = [
 
 export const CUSTOM_HYMNS_STORAGE_KEY = 'kalimba_custom_hymns_v1';
 
+// Node.js 테스트 환경 및 브라우저 비지원 환경을 위한 인메모리 폴백 저장소
+const memoryStore: Record<string, string> = {};
+
+function getStoredHymnsRaw(): string | null {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      return localStorage.getItem(CUSTOM_HYMNS_STORAGE_KEY);
+    } catch {
+      return memoryStore[CUSTOM_HYMNS_STORAGE_KEY] || null;
+    }
+  }
+  return memoryStore[CUSTOM_HYMNS_STORAGE_KEY] || null;
+}
+
+function setStoredHymnsRaw(value: string): void {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(CUSTOM_HYMNS_STORAGE_KEY, value);
+    } catch {
+      memoryStore[CUSTOM_HYMNS_STORAGE_KEY] = value;
+    }
+  } else {
+    memoryStore[CUSTOM_HYMNS_STORAGE_KEY] = value;
+  }
+}
+
 export interface StoredHymnData {
   id: string;
   hymnNumber?: number;
@@ -461,7 +487,7 @@ export interface StoredHymnData {
  */
 export function loadAllHymns(): Song[] {
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(CUSTOM_HYMNS_STORAGE_KEY) : null;
+    const raw = getStoredHymnsRaw();
     if (!raw) return DEFAULT_HYMN_SONGS;
 
     const storedList: StoredHymnData[] = JSON.parse(raw);
@@ -547,7 +573,7 @@ export function saveOrUpdateHymn(hymnData: {
   rawNotation: string;
 }): Song[] {
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(CUSTOM_HYMNS_STORAGE_KEY) : null;
+    const raw = getStoredHymnsRaw();
     const storedList: StoredHymnData[] = raw ? JSON.parse(raw) : [];
 
     const isDefaultId = DEFAULT_HYMN_SONGS.some((s) => s.id === hymnData.id);
@@ -583,9 +609,7 @@ export function saveOrUpdateHymn(hymnData: {
       storedList.push(entry);
     }
 
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(CUSTOM_HYMNS_STORAGE_KEY, JSON.stringify(storedList));
-    }
+    setStoredHymnsRaw(JSON.stringify(storedList));
   } catch (e) {
     console.warn('Failed to save custom hymn', e);
   }
@@ -598,13 +622,11 @@ export function saveOrUpdateHymn(hymnData: {
  */
 export function deleteOrResetHymn(id: string): Song[] {
   try {
-    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(CUSTOM_HYMNS_STORAGE_KEY) : null;
+    const raw = getStoredHymnsRaw();
     if (!raw) return loadAllHymns();
     const storedList: StoredHymnData[] = JSON.parse(raw);
     const filtered = storedList.filter((item) => item.id !== id);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(CUSTOM_HYMNS_STORAGE_KEY, JSON.stringify(filtered));
-    }
+    setStoredHymnsRaw(JSON.stringify(filtered));
   } catch (e) {
     console.warn('Failed to delete custom hymn', e);
   }
