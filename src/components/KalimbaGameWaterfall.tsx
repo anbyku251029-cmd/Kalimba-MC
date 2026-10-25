@@ -8,6 +8,9 @@ import { RhythmJudgeManager } from '../utils/rhythmJudge';
 import { ComboStats, CharacterState } from '../types/comboTypes';
 import { GuguGagaReaction } from './GuguGagaReaction';
 import { ComboDisplay } from './ComboDisplay';
+import { AcousticKalimbaJudge } from '../utils/acousticKalimbaJudge';
+import { AcousticEvaluation, AcousticInputMode } from '../types/acousticTypes';
+import { MicrophoneAcousticIndicator } from './MicrophoneAcousticIndicator';
 
 type FallingNoteItem = TimedNoteItem;
 
@@ -80,6 +83,69 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
     timeline.hasChords ? 'chord' : 'melody'
   );
   const [lastChordToast, setLastChordToast] = useState<{ message: string; key: number } | null>(null);
+
+  // STEP 03-B: 실물 칼림바 마이크 인식 모드 상태
+  const [inputMode, setInputMode] = useState<AcousticInputMode>('touch');
+  const [isMicListening, setIsMicListening] = useState<boolean>(false);
+  const [acousticEvaluation, setAcousticEvaluation] = useState<AcousticEvaluation | null>(null);
+  const [, setMicErrorToast] = useState<string | null>(null);
+  const acousticJudgeRef = useRef<AcousticKalimbaJudge | null>(null);
+
+  // 실시간 마이크 판정 엔진 초기화
+  useEffect(() => {
+    const judge = new AcousticKalimbaJudge({
+      perfectCentsTolerance: 35,
+      greatCentsTolerance: 70,
+      cooldownMs: 320,
+    });
+    acousticJudgeRef.current = judge;
+
+    judge.onEvaluationChange = (evalResult) => {
+      setAcousticEvaluation(evalResult);
+    };
+
+    return () => {
+      judge.stop();
+      acousticJudgeRef.current = null;
+    };
+  }, []);
+
+  // 마이크 켜기/끄기 토글
+  const toggleMicListening = useCallback(async () => {
+    if (!acousticJudgeRef.current) return;
+    if (isMicListening) {
+      acousticJudgeRef.current.stop();
+      setIsMicListening(false);
+      setAcousticEvaluation(null);
+    } else {
+      setMicErrorToast(null);
+      const success = await acousticJudgeRef.current.start((errMsg) => {
+        setMicErrorToast(errMsg);
+        setIsMicListening(false);
+      });
+      if (success) {
+        setIsMicListening(true);
+      }
+    }
+  }, [isMicListening]);
+
+  // 입력 모드 전환 핸들러
+  const handleToggleInputMode = useCallback((mode: AcousticInputMode) => {
+    setInputMode(mode);
+    if (mode === 'touch') {
+      if (acousticJudgeRef.current && acousticJudgeRef.current.isListening()) {
+        acousticJudgeRef.current.stop();
+      }
+      setIsMicListening(false);
+      setAcousticEvaluation(null);
+    } else if (mode === 'acoustic_mic') {
+      if (acousticJudgeRef.current && !acousticJudgeRef.current.isListening()) {
+        acousticJudgeRef.current.start().then((ok) => {
+          if (ok) setIsMicListening(true);
+        });
+      }
+    }
+  }, []);
 
   // 곡 또는 타임라인 변경 시 판정 엔진 리셋 (화음 그룹 전달)
   useEffect(() => {
@@ -215,6 +281,33 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
     },
     [fallingNotes, song.tempoBpm, triggerKey]
   );
+
+  // STEP 03-B: 현재 히트라인 부근의 가장 가까운 목표 음표 계산
+  const currentTargetNote = useMemo(() => {
+    const nearNotes = fallingNotes.filter(
+      (n) => !n.isRest && n.beatTime >= currentBeat - 0.6 && n.beatTime <= currentBeat + 1.4
+    );
+    if (nearNotes.length === 0) return null;
+    nearNotes.sort((a, b) => Math.abs(a.beatTime - currentBeat) - Math.abs(b.beatTime - currentBeat));
+    return { pitch: nearNotes[0].pitch, keyIndex: nearNotes[0].keyIndex };
+  }, [fallingNotes, currentBeat]);
+
+  // 목표 음표 변경 시 마이크 판정 엔진에 업데이트
+  useEffect(() => {
+    if (acousticJudgeRef.current) {
+      acousticJudgeRef.current.setTargetNote(currentTargetNote);
+    }
+  }, [currentTargetNote]);
+
+  // 실물 마이크 인식 타격 시 연주 입력 자동 트리거
+  useEffect(() => {
+    if (!acousticJudgeRef.current) return;
+    acousticJudgeRef.current.onValidNoteHit = (evalResult) => {
+      if (inputMode === 'acoustic_mic' && evalResult.detectedKey) {
+        handleUserNoteInput(evalResult.detectedKey.index, evalResult.detectedKey.pitch);
+      }
+    };
+  }, [inputMode, handleUserNoteInput]);
 
   // Animation Loop
   useEffect(() => {
@@ -524,6 +617,35 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
 
         {/* Right: Speed Slider & Mode Switch */}
         <div className="flex items-center space-x-3 sm:space-x-5">
+          {/* STEP 03-B: 입력 모드 전환 (화면 터치 vs 실물 칼림바 마이크) */}
+          <div className="flex flex-col items-center">
+            <span className="text-[11px] font-bold text-indigo-200 mb-1">입력 방식</span>
+            <div className="flex items-center p-0.5 rounded-full bg-indigo-950/80 border border-indigo-400/30">
+              <button
+                type="button"
+                onClick={() => handleToggleInputMode('touch')}
+                className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all ${
+                  inputMode === 'touch'
+                    ? 'bg-cyan-500 text-white shadow-sm'
+                    : 'text-indigo-300 hover:text-white'
+                }`}
+              >
+                👆 터치
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleInputMode('acoustic_mic')}
+                className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all ${
+                  inputMode === 'acoustic_mic'
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md shadow-emerald-500/30 font-black'
+                    : 'text-indigo-300 hover:text-white'
+                }`}
+              >
+                🎤 실물
+              </button>
+            </div>
+          </div>
+
           {/* STEP 03-A: 연습 모드 전환 (단선율 vs 화음·양손 가이드) */}
           <div className="flex flex-col items-center">
             <span className="text-[11px] font-bold text-purple-200 mb-1">연습 모드</span>
@@ -646,6 +768,18 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         lastRating={comboStats.lastRating}
         ratingTrigger={ratingTrigger}
       />
+
+      {/* STEP 03-B: 실물 칼림바 마이크 인디케이터 (마이크 모드일 때 상단 표시) */}
+      {inputMode === 'acoustic_mic' && (
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-30 w-[92%] max-w-md pointer-events-auto">
+          <MicrophoneAcousticIndicator
+            evaluation={acousticEvaluation}
+            isListening={isMicListening}
+            onToggleMic={toggleMicListening}
+            targetPitch={currentTargetNote?.pitch}
+          />
+        </div>
+      )}
 
       {/* CHEER BADGE (Right side: ⭐ 잘했어요!) */}
       {showCheer && (

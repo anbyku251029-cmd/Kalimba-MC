@@ -8,6 +8,7 @@ import { StepLearningModal } from './StepLearningModal';
 import { StickerRewardBoardModal } from './StickerRewardBoardModal';
 import { ChildGrowthModal } from './ChildGrowthModal';
 import { ParentDashboardModal } from './ParentDashboardModal';
+import { MicrophoneTunerModal } from './MicrophoneTunerModal';
 import { audioEngine } from '../utils/audioEngine';
 import { CHORD_PRACTICE_SONGS } from '../data/chordSongs';
 
@@ -51,6 +52,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   const [isRewardModalOpen, setIsRewardModalOpen] = useState<boolean>(false);
   const [isChildGrowthOpen, setIsChildGrowthOpen] = useState<boolean>(false);
   const [isParentDashboardOpen, setIsParentDashboardOpen] = useState<boolean>(false);
+  const [isMicTunerOpen, setIsMicTunerOpen] = useState<boolean>(false);
   const [learningSong, setLearningSong] = useState<Song | null>(null);
   const [editingHymn, setEditingHymn] = useState<Song | null>(null);
 
@@ -336,6 +338,19 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
                 <span>허밍 채보</span>
               </button>
             )}
+
+            {/* STEP 03-B: 실물 칼림바 마이크 튜너 및 진단기 */}
+            <button
+              onClick={() => {
+                stopPreview();
+                setIsMicTunerOpen(true);
+              }}
+              className="px-4 py-2 rounded-2xl bg-gradient-to-r from-emerald-500/25 to-teal-500/25 hover:from-emerald-500/40 hover:to-teal-500/40 border-2 border-emerald-400 text-emerald-100 text-xs sm:text-sm font-extrabold flex items-center space-x-2 shadow-[0_0_20px_rgba(16,185,129,0.35)] transition cursor-pointer active:scale-95"
+              title="진짜 칼림바 소리를 듣고 조율 상태를 진단해 주는 마이크 튜너"
+            >
+              <span className="text-base sm:text-lg">🎼</span>
+              <span>칼림바 튜너</span>
+            </button>
 
             <button
               onClick={() => setIsValidationModalOpen(true)}
@@ -804,6 +819,12 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
       {isParentDashboardOpen && (
         <ParentDashboardModal onClose={() => setIsParentDashboardOpen(false)} />
       )}
+
+      {/* STEP 03-B: 실물 칼림바 마이크 튜너 모달 */}
+      <MicrophoneTunerModal
+        isOpen={isMicTunerOpen}
+        onClose={() => setIsMicTunerOpen(false)}
+      />
     </div>
   );
 };
