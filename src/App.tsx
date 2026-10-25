@@ -84,16 +84,24 @@ export default function App() {
     setIsPlaying(true);
   }, [currentSong.id, currentSong.title, difficulty, speedPercent]);
 
-  // Song completion handler (STEP 02-A: 리듬 콤보 통계 및 스티커 보상 연동, STEP 02-E: 완주 기록)
+  // Song completion handler (STEP 02-A: 리듬 콤보 통계 및 스티커 보상 연동, STEP 02-E & STEP 03-C: 완주 기록)
   const handleSongComplete = useCallback(
-    (stats?: ComboStats) => {
+    (
+      stats?: ComboStats,
+      adaptiveStats?: {
+        tempoMode?: string;
+        initialSpeedPercent?: number;
+        finalSpeedPercent?: number;
+        waitingCount?: number;
+      }
+    ) => {
       setIsPlaying(false);
       const updated = recordSongCompletion(currentSong.id, loadUserProgress());
       setUserProgress(updated);
       setLastCompletionStats(stats);
 
-      // STEP 02-E: 실제 완주 세션 기록 및 통계 확정
-      learningSessionManager.completeSession(stats);
+      // STEP 02-E & STEP 03-C: 실제 완주 세션 기록 및 적응형 템포 통계 확정
+      learningSessionManager.completeSession(stats, adaptiveStats);
 
       // 구구가가 스티커 보상 시스템 연동 (완주 성공 시 연습 세션 기록)
       try {

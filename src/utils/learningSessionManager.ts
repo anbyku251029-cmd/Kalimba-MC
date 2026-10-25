@@ -143,7 +143,15 @@ export class LearningSessionManager {
    * 곡 완주 시 세션을 정상 완료(COMPLETED) 처리하고 통계를 확정합니다.
    * 동일 세션에 대해 중복 호출되더라도 1회만 처리 (멱등성 보장).
    */
-  public completeSession(stats?: ComboStats): LearningSessionRecord | null {
+  public completeSession(
+    stats?: ComboStats,
+    adaptiveStats?: {
+      tempoMode?: string;
+      initialSpeedPercent?: number;
+      finalSpeedPercent?: number;
+      waitingCount?: number;
+    }
+  ): LearningSessionRecord | null {
     if (!this.activeSessionId || this.hasCompletedThisSession) {
       return null;
     }
@@ -185,6 +193,10 @@ export class LearningSessionManager {
       perfectCount: stats?.perfectCount,
       greatCount: stats?.greatCount,
       missCount: stats?.missCount,
+      tempoMode: adaptiveStats?.tempoMode,
+      initialSpeedPercent: adaptiveStats?.initialSpeedPercent,
+      finalSpeedPercent: adaptiveStats?.finalSpeedPercent,
+      waitingCount: adaptiveStats?.waitingCount,
       createdAt: this.sessionStartWallTime,
       updatedAt: nowWall,
     };

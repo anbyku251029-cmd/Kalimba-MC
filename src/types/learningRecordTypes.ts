@@ -28,6 +28,10 @@ export interface LearningSessionRecord {
   perfectCount?: number;         // PERFECT 판정 수
   greatCount?: number;           // GREAT 판정 수
   missCount?: number;            // MISS 판정 수
+  tempoMode?: string;            // STEP 03-C: 템포 모드 ('original' | 'relaxed' | 'adaptive' | 'free')
+  initialSpeedPercent?: number;  // 시작 속도 (%)
+  finalSpeedPercent?: number;    // 종료 속도 (%)
+  waitingCount?: number;         // 음표 대기 발생 횟수
   createdAt: number;             // 기록 생성 시각
   updatedAt: number;             // 기록 갱신 시각
 }

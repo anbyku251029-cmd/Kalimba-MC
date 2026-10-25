@@ -11,6 +11,9 @@ import { ComboDisplay } from './ComboDisplay';
 import { AcousticKalimbaJudge } from '../utils/acousticKalimbaJudge';
 import { AcousticEvaluation, AcousticInputMode } from '../types/acousticTypes';
 import { MicrophoneAcousticIndicator } from './MicrophoneAcousticIndicator';
+import { AdaptiveTempoController } from '../utils/adaptiveTempoController';
+import { TempoMode, WaitTimeoutMode, AdaptiveTempoState } from '../types/adaptiveTempoTypes';
+import { AdaptiveTempoWidget } from './AdaptiveTempoWidget';
 
 type FallingNoteItem = TimedNoteItem;
 
@@ -24,7 +27,12 @@ export interface KalimbaGameWaterfallProps {
   onOpenExitModal: () => void;
   onChangeSpeed: (speed: number) => void;
   onChangeDifficulty: (difficulty: string) => void;
-  onSongComplete?: (stats?: ComboStats) => void;
+  onSongComplete?: (stats?: ComboStats, adaptiveStats?: {
+    tempoMode?: string;
+    initialSpeedPercent?: number;
+    finalSpeedPercent?: number;
+    waitingCount?: number;
+  }) => void;
 }
 
 export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
@@ -147,6 +155,84 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
     }
   }, []);
 
+  // STEP 03-C: 어린이 맞춤형 자동 템포 및 적응형 워터폴 컨트롤러
+  const adaptiveControllerRef = useRef<AdaptiveTempoController>(
+    new AdaptiveTempoController(song.tempoBpm, song.level, 'relaxed')
+  );
+  const [adaptiveState, setAdaptiveState] = useState<AdaptiveTempoState>(() =>
+    adaptiveControllerRef.current.getState()
+  );
+  const [showAdaptiveWidget, setShowAdaptiveWidget] = useState<boolean>(true);
+
+  // 컨트롤러 이벤트 리스너 연결
+  useEffect(() => {
+    const ctrl = adaptiveControllerRef.current;
+    ctrl.onSpeedChanged = (newSpeed) => {
+      onChangeSpeed(newSpeed);
+      setAdaptiveState(ctrl.getState());
+    };
+    ctrl.onWaitStateChanged = () => {
+      setAdaptiveState(ctrl.getState());
+    };
+  }, [onChangeSpeed]);
+
+  // 곡 변경 시 컨트롤러 리셋
+  useEffect(() => {
+    adaptiveControllerRef.current = new AdaptiveTempoController(
+      song.tempoBpm,
+      song.level,
+      adaptiveState.mode,
+      adaptiveState.waitTimeoutMode
+    );
+    setAdaptiveState(adaptiveControllerRef.current.getState());
+  }, [song.id, song.tempoBpm, song.level]);
+
+  // 템포 모드 변경 핸들러
+  const handleTempoModeChange = useCallback(
+    (newMode: TempoMode) => {
+      adaptiveControllerRef.current.setMode(newMode);
+      if (newMode === 'original' || newMode === 'free') {
+        onChangeSpeed(100);
+      }
+      setAdaptiveState(adaptiveControllerRef.current.getState());
+    },
+    [onChangeSpeed]
+  );
+
+  // 대기 시간 모드 변경 핸들러
+  const handleWaitTimeoutModeChange = useCallback((newWaitMode: WaitTimeoutMode) => {
+    adaptiveControllerRef.current.setWaitTimeoutMode(newWaitMode);
+    setAdaptiveState(adaptiveControllerRef.current.getState());
+  }, []);
+
+  // 수동 속도 조절 핸들러 (수동 우선권 적용)
+  const handleManualSpeedChange = useCallback(
+    (newSpeed: number) => {
+      adaptiveControllerRef.current.manualSetSpeed(newSpeed);
+      onChangeSpeed(newSpeed);
+      setAdaptiveState(adaptiveControllerRef.current.getState());
+    },
+    [onChangeSpeed]
+  );
+
+  // 원곡 100% 복귀
+  const handleResetOriginalSpeed = useCallback(() => {
+    adaptiveControllerRef.current.resetToOriginalSpeed();
+    onChangeSpeed(100);
+    setAdaptiveState(adaptiveControllerRef.current.getState());
+  }, [onChangeSpeed]);
+
+  // 대기 중인 음표 건너뛰기
+  const handleSkipWaitingNote = useCallback(() => {
+    const ctrl = adaptiveControllerRef.current;
+    if (ctrl.getIsWaiting()) {
+      ctrl.resolveNoteWait();
+      setAdaptiveState(ctrl.getState());
+      currentBeatRef.current += 0.5;
+      setCurrentBeat(currentBeatRef.current);
+    }
+  }, []);
+
   // 곡 또는 타임라인 변경 시 판정 엔진 리셋 (화음 그룹 전달)
   useEffect(() => {
     judgeManagerRef.current.reset(timeline.totalPlayableNotes, timeline.chordGroups);
@@ -249,6 +335,15 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
         setComboStats(stats);
         setRatingTrigger((prev) => prev + 1);
 
+        // STEP 03-C: 적응형 템포 엔진에 판정 결과 전달
+        adaptiveControllerRef.current.registerJudgment({
+          noteId: result.targetNoteId || 'note',
+          rating: result.rating,
+          isCorrect: result.rating === 'PERFECT' || result.rating === 'GREAT',
+          timestamp: Date.now(),
+        });
+        setAdaptiveState(adaptiveControllerRef.current.getState());
+
         if (result.targetNoteId) {
           setSparkleNoteIds((prev) => ({ ...prev, [result.targetNoteId!]: true }));
           setTimeout(() => {
@@ -320,27 +415,61 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
       lastTimeRef.current = timestamp;
 
       if (isPlayingRef.current) {
+        const ctrl = adaptiveControllerRef.current;
+        const tempoMode = ctrl.getMode();
+
+        // 1. 자유 연주 모드('free'): 워터폴 자동 진행 멈춤
+        if (tempoMode === 'free') {
+          animationFrameRef.current = requestAnimationFrame(loop);
+          return;
+        }
+
         const beatsPerSecond = (song.tempoBpm / 60) * (speedPercentRef.current / 100);
         const deltaBeats = (deltaMs / 1000) * beatsPerSecond;
 
         const prevBeat = currentBeatRef.current;
-        const nextBeat = prevBeat + deltaBeats;
+        let nextBeat = prevBeat + deltaBeats;
+
+        // 2. 음표 대기(Wait for Note) 처리: 느긋한 연습('relaxed') 또는 자동 맞춤('adaptive')
+        if (tempoMode === 'relaxed' || tempoMode === 'adaptive') {
+          const nextUnjudged = fallingNotes.find(
+            (n) => !n.isRest && !judgeManagerRef.current.isNoteJudged(n.id)
+          );
+
+          if (nextUnjudged) {
+            if (nextBeat >= nextUnjudged.beatTime) {
+              nextBeat = nextUnjudged.beatTime;
+              ctrl.startWaitingForNote(nextUnjudged.id);
+
+              const timeoutCheck = ctrl.checkWaitTimeout();
+              if (timeoutCheck.isTimedOut) {
+                setCharacterState('encourage');
+                setCharacterMessage(timeoutCheck.message);
+              }
+            } else if (ctrl.getIsWaiting() && ctrl.getWaitingNoteId() === nextUnjudged.id) {
+              ctrl.resolveNoteWait();
+            }
+          }
+        }
+
         currentBeatRef.current = nextBeat;
         setCurrentBeat(nextBeat);
 
-        // 타격선을 지나쳐버린 음표(Pass Miss) 자동 판정 (쉼표는 자동 제외)
-        const missedIds = judgeManagerRef.current.checkPassedNotes(
-          nextBeat,
-          song.tempoBpm,
-          speedPercentRef.current / 100,
-          fallingNotes
-        );
-        if (missedIds.length > 0) {
-          const stats = judgeManagerRef.current.getStats();
-          setComboStats(stats);
-          setRatingTrigger((prev) => prev + 1);
-          setCharacterState('encourage');
-          setCharacterMessage('아쉬워요! 박자에 맞춰 다시 도전! 🎶');
+        // 타격선을 지나쳐버린 음표(Pass Miss) 자동 판정 (대기 중일 때는 패스 미스 방지)
+        if (!ctrl.getIsWaiting()) {
+          const missedIds = judgeManagerRef.current.checkPassedNotes(
+            nextBeat,
+            song.tempoBpm,
+            speedPercentRef.current / 100,
+            fallingNotes
+          );
+          if (missedIds.length > 0) {
+            const stats = judgeManagerRef.current.getStats();
+            setComboStats(stats);
+            setRatingTrigger((prev) => prev + 1);
+            setCharacterState('encourage');
+            setCharacterMessage('아쉬워요! 박자에 맞춰 다시 도전! 🎶');
+          }
         }
 
         // 가이드 사운드 및 타격선 도달 음표 스파클 효과 (사용자가 이미 친 음표는 중복 타격 방지)
@@ -396,7 +525,13 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
             setCharacterState('celebrate');
             setCharacterMessage('와아! 멋지게 완주했어요! 🏆');
             const finalStats = judgeManagerRef.current.getStats();
-            if (onSongComplete) onSongComplete(finalStats);
+            const adaptiveInfo = {
+              tempoMode: adaptiveState.mode,
+              initialSpeedPercent: adaptiveState.initialSpeedPercent,
+              finalSpeedPercent: adaptiveState.currentSpeedPercent,
+              waitingCount: adaptiveState.totalWaitCount,
+            };
+            if (onSongComplete) onSongComplete(finalStats, adaptiveInfo);
           }
         }
       }
@@ -675,6 +810,22 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
             </div>
           </div>
 
+          {/* STEP 03-C: 적응형 템포 패널 토글 버튼 */}
+          <div className="flex flex-col items-center">
+            <span className="text-[11px] font-bold text-amber-200 mb-1">템포 제어</span>
+            <button
+              type="button"
+              onClick={() => setShowAdaptiveWidget((prev) => !prev)}
+              className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all border ${
+                showAdaptiveWidget
+                  ? 'bg-amber-400 text-amber-950 border-amber-300 shadow-md font-black'
+                  : 'bg-purple-950/80 border-purple-400/30 text-purple-200 hover:text-white'
+              }`}
+            >
+              ⏱️ {adaptiveState.mode === 'original' ? '원곡' : adaptiveState.mode === 'relaxed' ? '느긋' : adaptiveState.mode === 'adaptive' ? '맞춤' : '자유'}
+            </button>
+          </div>
+
           {/* Speed Slider & Quick Presets */}
           <div className="flex flex-col items-center">
             <div className="flex items-center space-x-1 mb-1">
@@ -777,6 +928,24 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
             isListening={isMicListening}
             onToggleMic={toggleMicListening}
             targetPitch={currentTargetNote?.pitch}
+          />
+        </div>
+      )}
+
+      {/* STEP 03-C: 어린이 맞춤형 자동 템포 및 음표 대기 위젯 */}
+      {showAdaptiveWidget && (
+        <div
+          className={`absolute left-1/2 -translate-x-1/2 z-30 w-[92%] max-w-xl pointer-events-auto transition-all ${
+            inputMode === 'acoustic_mic' ? 'top-52' : 'top-24'
+          }`}
+        >
+          <AdaptiveTempoWidget
+            tempoState={adaptiveState}
+            onChangeMode={handleTempoModeChange}
+            onChangeWaitTimeoutMode={handleWaitTimeoutModeChange}
+            onManualSpeedChange={handleManualSpeedChange}
+            onSkipWaitingNote={handleSkipWaitingNote}
+            onResetOriginalSpeed={handleResetOriginalSpeed}
           />
         </div>
       )}
