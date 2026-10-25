@@ -1,6 +1,7 @@
-import { Song, KalimbaNote } from '../types/music';
+import { Song, KalimbaNote, KalimbaHand } from '../types/music';
 import { PITCH_TO_KEY } from '../constants/kalimbaKeys';
 import { calculateDynamicAccent } from './audioEngine';
+import { ChordGroupItem } from '../types/chordTypes';
 
 export interface TimedNoteItem {
   id: string;
@@ -22,6 +23,12 @@ export interface TimedNoteItem {
   lyric?: string;
   beatInMeasure?: number; // 마디 내 박자 위치 (0-based)
   dynamicAccent?: number; // 0.65 ~ 1.0 음악적 강약 가중치
+  // STEP 03-A: 화음 및 양손 연주 확장 필드
+  hand: KalimbaHand; // 'left' | 'right' | 'center'
+  chordId?: string;
+  isChord?: boolean;
+  isChordSecondary?: boolean; // 화음의 두 번째 이상 음표
+  chordPartnerPitches?: string[];
 }
 
 export interface SongTimingTimeline {
@@ -34,6 +41,8 @@ export interface SongTimingTimeline {
   initialLeadInSeconds: number;
   items: TimedNoteItem[]; // 쉼표 포함 전체 타임라인
   playableItems: TimedNoteItem[]; // 실제 떨어지는 블록 및 발음 대상
+  chordGroups: ChordGroupItem[]; // STEP 03-A: 동일 시점 화음 그룹 배열
+  hasChords: boolean; // STEP 03-A: 화음 포함 여부
   totalPlayableNotes: number;
   totalBeats: number;
   musicalEndBeat: number;
@@ -57,15 +66,33 @@ export function calculateSongTimeline(
   const initialLeadInSeconds = Math.abs(leadInBeats) * beatDurationSeconds;
 
   let currentBeat = 0.0;
+  let lastNoteStartBeat = 0.0;
+  let maxDurationInCurrentBeat = 0.0;
   const items: TimedNoteItem[] = [];
   const playableItems: TimedNoteItem[] = [];
 
   song.notes.forEach((note: KalimbaNote, idx: number) => {
     const isRest = Boolean(note.isRest || note.pitch === 'REST' || note.pitch === '0');
-    const startBeat = currentBeat;
-    const durationBeats = Math.max(0.01, note.duration || 1);
-    const endBeat = startBeat + durationBeats;
+    const isSimultaneous = Boolean(note.isSimultaneousWithPrevious && idx > 0);
 
+    let startBeat: number;
+    const durationBeats = Math.max(0.01, note.duration || 1);
+
+    if (isSimultaneous) {
+      // 이전 음과 동시 시작: currentBeat를 증가시키지 않고 이전 시작 비트 공유
+      startBeat = lastNoteStartBeat;
+      maxDurationInCurrentBeat = Math.max(maxDurationInCurrentBeat, durationBeats);
+    } else {
+      // 새로운 시점: 이전 화음 묶음의 최대 duration만큼 currentBeat 전진
+      if (idx > 0) {
+        currentBeat += maxDurationInCurrentBeat;
+      }
+      startBeat = currentBeat;
+      lastNoteStartBeat = startBeat;
+      maxDurationInCurrentBeat = durationBeats;
+    }
+
+    const endBeat = startBeat + durationBeats;
     const startSeconds = startBeat * beatDurationSeconds;
     const endSeconds = endBeat * beatDurationSeconds;
 
@@ -88,6 +115,9 @@ export function calculateSongTimeline(
     const beatInMeasure = Math.round((startBeat % measureBeats) * 100) / 100;
     const dynamicAccent = calculateDynamicAccent(beatInMeasure, timeSig);
 
+    // 기본 손 배정: note.hand가 있으면 그것을 사용, 없으면 키의 물리적 위치(0~7: left, 8: center, 9~16: right) 기준
+    const hand: KalimbaHand = note.hand || (key ? key.hand : 'center');
+
     const item: TimedNoteItem = {
       id: `${song.id}-note-${idx}-${note.pitch}`,
       originalIndex: idx,
@@ -108,14 +138,65 @@ export function calculateSongTimeline(
       lyric: note.lyric,
       beatInMeasure,
       dynamicAccent,
+      hand,
+      chordId: note.chordId,
+      isChord: isSimultaneous,
+      isChordSecondary: isSimultaneous,
     };
 
     items.push(item);
     if (!isRest) {
       playableItems.push(item);
     }
+  });
 
-    currentBeat += durationBeats;
+  // 마지막 음표 묶음의 duration 반영
+  if (song.notes.length > 0) {
+    currentBeat += maxDurationInCurrentBeat;
+  }
+
+  // STEP 03-A: 동일 startBeat를 갖는 음표들을 묶어 ChordGroupItem 생성
+  const beatGroupMap = new Map<number, TimedNoteItem[]>();
+  playableItems.forEach((item) => {
+    const roundedBeat = Math.round(item.startBeat * 1000) / 1000;
+    const group = beatGroupMap.get(roundedBeat) || [];
+    group.push(item);
+    beatGroupMap.set(roundedBeat, group);
+  });
+
+  const chordGroups: ChordGroupItem[] = [];
+  let hasChords = false;
+
+  beatGroupMap.forEach((notesInBeat, beat) => {
+    if (notesInBeat.length >= 2) {
+      hasChords = true;
+      const groupChordId = notesInBeat[0].chordId || `chord-${song.id}-${beat}`;
+      const pitches = notesInBeat.map((n) => n.pitch);
+      const keyIndexes = notesInBeat.map((n) => n.keyIndex);
+      const assignedHands = notesInBeat.map((n) => n.hand);
+      const hasLeft = assignedHands.includes('left');
+      const hasRight = assignedHands.includes('right');
+
+      notesInBeat.forEach((n) => {
+        n.isChord = true;
+        n.chordId = groupChordId;
+        n.chordPartnerPitches = pitches.filter((p) => p !== n.pitch);
+      });
+
+      chordGroups.push({
+        chordId: groupChordId,
+        startBeat: beat,
+        durationBeats: Math.max(...notesInBeat.map((n) => n.durationBeats)),
+        startSeconds: beat * beatDurationSeconds,
+        endSeconds: (beat + Math.max(...notesInBeat.map((n) => n.durationBeats))) * beatDurationSeconds,
+        notes: notesInBeat,
+        pitches,
+        keyIndexes,
+        isTwoHanded: hasLeft && hasRight,
+        assignedHands,
+        chordName: `${pitches.join('·')} 화음`,
+      });
+    }
   });
 
   const totalBeats = Math.round(currentBeat * 100) / 100;
@@ -139,6 +220,8 @@ export function calculateSongTimeline(
     initialLeadInSeconds,
     items,
     playableItems,
+    chordGroups,
+    hasChords,
     totalPlayableNotes: playableItems.length,
     totalBeats,
     musicalEndBeat,

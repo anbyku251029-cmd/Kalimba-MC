@@ -202,6 +202,42 @@ class KalimbaAudioEngine {
   }
 
   /**
+   * STEP 03-A: 두 개 이상의 음을 동시에 화음으로 정밀 발음합니다.
+   * 화음 구성음 수에 따른 다이내믹 게인 정규화를 적용하여 볼륨 과도 증폭 및 클리핑을 방지합니다.
+   */
+  public playChord(
+    pitches: string[],
+    durationBeats: number = 1,
+    tempoBpm: number = 80,
+    speedMultiplier: number = 1.0,
+    timbreOverride?: KalimbaTimbreMode,
+    scheduledTime?: number,
+    velocity: number = 1.0,
+    timeSignature: '4/4' | '3/4' | '2/4' | '6/8' = '4/4',
+    beatInMeasure?: number
+  ): void {
+    if (!pitches || pitches.length === 0 || this.isMuted) return;
+
+    // 화음 수에 따른 게인 정규화: 2음이면 약 0.78, 3음이면 약 0.65
+    const numNotes = pitches.length;
+    const normalizedVelocity = velocity * Math.min(1.0, 1.2 / Math.sqrt(numNotes + 0.5));
+
+    pitches.forEach((pitch) => {
+      this.playNote(
+        pitch,
+        durationBeats,
+        tempoBpm,
+        speedMultiplier,
+        timbreOverride,
+        scheduledTime,
+        normalizedVelocity,
+        timeSignature,
+        beatInMeasure
+      );
+    });
+  }
+
+  /**
    * 실제 17음 C Major 칼림바의 어쿠스틱 물리 특성을 반영한 합성음을 정밀 발음합니다.
    * 
    * @param pitch 음높이 (예: 'C4', 'E5')

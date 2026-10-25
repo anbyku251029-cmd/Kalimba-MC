@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Song } from './types/music';
-import { getAllSongsWithCustomHymns } from './data/songs';
+import { getAllSongsWithCustomHymns, CHORD_PRACTICE_SONGS } from './data/songs';
 import { saveOrUpdateHymn, deleteOrResetHymn } from './data/hymns';
 import { audioEngine } from './utils/audioEngine';
 import { loadUserProgress, recordSongCompletion } from './utils/storage';
@@ -33,7 +33,7 @@ export default function App() {
 
   // Currently selected song & difficulty
   const [currentSong, setCurrentSong] = useState<Song>(() => {
-    const initialList = getAllSongsWithCustomHymns();
+    const initialList = [...getAllSongsWithCustomHymns(), ...CHORD_PRACTICE_SONGS];
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const songId = params.get('song');

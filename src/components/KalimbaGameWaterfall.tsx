@@ -70,20 +70,27 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
   const totalNotes = timeline.totalPlayableNotes > 0 ? timeline.totalPlayableNotes : 1;
   const progressPercent = Math.min(100, Math.round((completedNoteCount / totalNotes) * 100));
 
-  // STEP 02-A: 리듬 판정 및 콤보 시스템 상태
+  // STEP 02-A & STEP 03-A: 리듬 판정 및 화음 콤보 시스템 상태
   const judgeManagerRef = useRef<RhythmJudgeManager>(new RhythmJudgeManager(timeline.totalPlayableNotes));
   const [comboStats, setComboStats] = useState<ComboStats>(() => judgeManagerRef.current.getStats());
   const [characterState, setCharacterState] = useState<CharacterState>('idle');
   const [characterMessage, setCharacterMessage] = useState<string>('');
   const [ratingTrigger, setRatingTrigger] = useState<number>(0);
+  const [practiceMode, setPracticeMode] = useState<'melody' | 'chord' | 'twoHand'>(() =>
+    timeline.hasChords ? 'chord' : 'melody'
+  );
+  const [lastChordToast, setLastChordToast] = useState<{ message: string; key: number } | null>(null);
 
-  // 곡 또는 타임라인 변경 시 판정 엔진 리셋
+  // 곡 또는 타임라인 변경 시 판정 엔진 리셋 (화음 그룹 전달)
   useEffect(() => {
-    judgeManagerRef.current.reset(timeline.totalPlayableNotes);
+    judgeManagerRef.current.reset(timeline.totalPlayableNotes, timeline.chordGroups);
     setComboStats(judgeManagerRef.current.getStats());
     setCharacterState('idle');
     setCharacterMessage('');
-  }, [song.id, timeline.totalPlayableNotes]);
+    if (timeline.hasChords) {
+      setPracticeMode('chord');
+    }
+  }, [song.id, timeline.totalPlayableNotes, timeline.chordGroups, timeline.hasChords]);
 
   // Animation and timing refs
   const animationFrameRef = useRef<number | null>(null);
@@ -187,8 +194,12 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
           }, 600);
         }
 
-        // 구구가가 캐릭터 상태 업데이트
-        if (result.rating === 'PERFECT' || result.rating === 'GREAT') {
+        // 구구가가 캐릭터 상태 업데이트 및 화음 완성 반응
+        if (result.chordResult && result.chordResult.rating === 'CHORD_PERFECT') {
+          setCharacterState('celebrate');
+          setCharacterMessage(result.chordResult.message);
+          setLastChordToast({ message: result.chordResult.message, key: Date.now() });
+        } else if (result.rating === 'PERFECT' || result.rating === 'GREAT') {
           if (stats.currentCombo >= 5 && stats.currentCombo % 5 === 0) {
             setCharacterState('combo');
             setCharacterMessage(`${stats.currentCombo} 콤보! 대단해요! 🚀`);
@@ -511,8 +522,37 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
           </div>
         </div>
 
-        {/* Right: Speed Slider & Yellow Exit Squircle */}
-        <div className="flex items-center space-x-4 sm:space-x-6">
+        {/* Right: Speed Slider & Mode Switch */}
+        <div className="flex items-center space-x-3 sm:space-x-5">
+          {/* STEP 03-A: 연습 모드 전환 (단선율 vs 화음·양손 가이드) */}
+          <div className="flex flex-col items-center">
+            <span className="text-[11px] font-bold text-purple-200 mb-1">연습 모드</span>
+            <div className="flex items-center p-0.5 rounded-full bg-purple-950/80 border border-purple-400/30">
+              <button
+                type="button"
+                onClick={() => setPracticeMode('melody')}
+                className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all ${
+                  practiceMode === 'melody'
+                    ? 'bg-cyan-500 text-white shadow-sm'
+                    : 'text-purple-300 hover:text-white'
+                }`}
+              >
+                단선율
+              </button>
+              <button
+                type="button"
+                onClick={() => setPracticeMode('chord')}
+                className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all ${
+                  practiceMode !== 'melody'
+                    ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white shadow-md shadow-pink-500/30 font-black'
+                    : 'text-purple-300 hover:text-white'
+                }`}
+              >
+                화음·양손
+              </button>
+            </div>
+          </div>
+
           {/* Speed Slider & Quick Presets */}
           <div className="flex flex-col items-center">
             <div className="flex items-center space-x-1 mb-1">
@@ -635,8 +675,39 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
           ))}
         </div>
 
-        {/* Falling Note Blocks */}
+        {/* Falling Note Blocks & STEP 03-A Chord Bridge Connections */}
         <div className="absolute inset-0 pointer-events-none">
+          {/* 1. 화음 연결선 (Chord Bridge Connection Lines) */}
+          {practiceMode !== 'melody' &&
+            timeline.chordGroups.map((chord) => {
+              const diffBeats = chord.startBeat - currentBeat;
+              if (diffBeats > 4.5 || diffBeats < -1.0) return null;
+
+              const colWidthPercent = 100 / 17;
+              const minKey = Math.min(...chord.keyIndexes);
+              const maxKey = Math.max(...chord.keyIndexes);
+              const leftPercent = minKey * colWidthPercent + colWidthPercent / 2;
+              const widthPercent = (maxKey - minKey) * colWidthPercent;
+              const yOffsetPx = diffBeats * BEAT_HEIGHT_PX;
+
+              return (
+                <div
+                  key={chord.chordId}
+                  style={{
+                    left: `${leftPercent}%`,
+                    width: `${widthPercent}%`,
+                    top: `calc(${STRIKE_LINE_Y_PERCENT}% - 28px - ${yOffsetPx}px + 18px)`,
+                  }}
+                  className="absolute h-1.5 bg-gradient-to-r from-pink-400 via-amber-300 to-cyan-300 shadow-[0_0_12px_rgba(236,72,153,0.8)] rounded-full z-0 flex items-center justify-center animate-pulse"
+                >
+                  <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-purple-950/90 text-pink-300 border border-pink-400/60 shadow-xs whitespace-nowrap -mt-4">
+                    ✨ {chord.isTwoHanded ? '양손 화음' : '화음'}
+                  </span>
+                </div>
+              );
+            })}
+
+          {/* 2. 음표 블록 (Note Pill Blocks) */}
           {fallingNotes.map((item) => {
             const diffBeats = item.beatTime - currentBeat;
             // Only render notes currently in view
@@ -655,11 +726,11 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
                   width: `${colWidthPercent}%`,
                   top: `calc(${STRIKE_LINE_Y_PERCENT}% - 28px - ${yOffsetPx}px)`,
                 }}
-                className="absolute flex items-center justify-center p-0.5 sm:p-1 transition-transform"
+                className="absolute flex items-center justify-center p-0.5 sm:p-1 transition-transform z-10"
               >
                 {/* Note Pill Block */}
                 <div
-                  className={`w-[92%] py-2 sm:py-2.5 rounded-xl sm:rounded-2xl flex flex-col items-center justify-center border-2 shadow-lg transition-transform ${
+                  className={`w-[92%] py-2 sm:py-2.5 rounded-xl sm:rounded-2xl flex flex-col items-center justify-center border-2 shadow-lg transition-transform relative ${
                     item.color === 'orange'
                       ? 'bg-linear-to-b from-[#fb923c] to-[#ea580c] border-[#fdba74] text-white shadow-orange-950/60'
                       : item.color === 'green'
@@ -669,6 +740,21 @@ export const KalimbaGameWaterfall: React.FC<KalimbaGameWaterfallProps> = ({
                       : 'bg-linear-to-b from-[#2dd4bf] to-[#0d9488] border-[#99f6e4] text-white shadow-teal-950/60'
                   } ${isSparkling ? 'scale-110 ring-4 ring-cyan-300 shadow-[0_0_25px_#22d3ee]' : ''}`}
                 >
+                  {/* STEP 03-A: 양손 연주 가이드 뱃지 */}
+                  {practiceMode !== 'melody' && (
+                    <div
+                      className={`absolute -top-2.5 px-1.5 py-0.2 rounded-full text-[9px] font-black shadow-md border ${
+                        item.hand === 'left'
+                          ? 'bg-indigo-600 text-indigo-100 border-indigo-300'
+                          : item.hand === 'right'
+                          ? 'bg-rose-600 text-rose-100 border-rose-300'
+                          : 'bg-emerald-600 text-emerald-100 border-emerald-300'
+                      }`}
+                    >
+                      {item.hand === 'left' ? 'L 왼손' : item.hand === 'right' ? 'R 오른손' : 'C 양손'}
+                    </div>
+                  )}
+
                   <span className="text-base sm:text-xl font-black leading-none drop-shadow-xs">
                     {item.numberNotation}
                   </span>

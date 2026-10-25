@@ -3,8 +3,9 @@ import { BEGINNER_SONGS } from './songsBeginner';
 import { INTERMEDIATE_SONGS } from './songsIntermediate';
 import { ADVANCED_SONGS } from './songsAdvanced';
 import { DEFAULT_HYMN_SONGS, loadAllHymns } from './hymns';
+import { CHORD_PRACTICE_SONGS } from './chordSongs';
 
-export { BEGINNER_SONGS, INTERMEDIATE_SONGS, ADVANCED_SONGS, DEFAULT_HYMN_SONGS, loadAllHymns };
+export { BEGINNER_SONGS, INTERMEDIATE_SONGS, ADVANCED_SONGS, DEFAULT_HYMN_SONGS, CHORD_PRACTICE_SONGS, loadAllHymns };
 
 export const SONGS_DATA: Song[] = [
   ...BEGINNER_SONGS,

@@ -9,6 +9,7 @@ import { StickerRewardBoardModal } from './StickerRewardBoardModal';
 import { ChildGrowthModal } from './ChildGrowthModal';
 import { ParentDashboardModal } from './ParentDashboardModal';
 import { audioEngine } from '../utils/audioEngine';
+import { CHORD_PRACTICE_SONGS } from '../data/chordSongs';
 
 interface SongSelectScreenProps {
   songs: Song[];
@@ -30,7 +31,7 @@ interface SongSelectScreenProps {
   onOpenHummingModal?: () => void;
 }
 
-type TabType = '쉬움' | '보통' | '어려움' | '찬송가' | '전체';
+type TabType = '쉬움' | '보통' | '어려움' | '찬송가' | '화음연습' | '전체';
 
 export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   songs,
@@ -110,6 +111,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
       보통: songs.filter((s) => s.level === 'intermediate').length,
       어려움: songs.filter((s) => s.level === 'advanced').length,
       찬송가: songs.filter((s) => s.level === 'hymn').length,
+      화음연습: CHORD_PRACTICE_SONGS.length,
     };
   }, [songs]);
 
@@ -124,6 +126,8 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
       list = songs.filter((s) => s.level === 'advanced');
     } else if (activeTab === '찬송가') {
       list = songs.filter((s) => s.level === 'hymn');
+    } else if (activeTab === '화음연습') {
+      list = CHORD_PRACTICE_SONGS;
     }
 
     const q = searchQuery.trim().toLowerCase();
@@ -139,7 +143,7 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
   }, [songs, activeTab, searchQuery]);
 
   const tabConfigs: {
-    key: '쉬움' | '보통' | '어려움' | '찬송가';
+    key: '쉬움' | '보통' | '어려움' | '찬송가' | '화음연습';
     label: string;
     levelName: string;
     icon: string;
@@ -203,13 +207,32 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
       badgeBg: 'bg-amber-500/30 text-amber-200 border-amber-400/50',
       unitLabel: `수록 찬송가 ${counts.찬송가}곡 (추가 가능)`,
     },
+    {
+      key: '화음연습',
+      label: '화음·양손',
+      levelName: 'STEP 03-A',
+      icon: '✨',
+      speed: '속도 80%',
+      desc: '2~3음 동시 연주 및 양손 가이드가 적용된 화음 학습곡',
+      activeBg: 'bg-pink-500/20',
+      activeBorder: 'border-pink-400 shadow-[0_0_20px_rgba(236,72,153,0.4)]',
+      activeText: 'text-pink-300',
+      badgeBg: 'bg-pink-500/30 text-pink-200 border-pink-400/50',
+      unitLabel: `화음 연습 ${counts.화음연습}곡`,
+    },
   ];
 
   const handleStartPractice = (song: Song, diffOverride?: '쉬움' | '보통' | '어려움' | '찬송가') => {
     stopPreview();
     const diff: '쉬움' | '보통' | '어려움' | '찬송가' =
       diffOverride ||
-      (activeTab === '전체'
+      (activeTab === '화음연습'
+        ? song.level === 'beginner'
+          ? '쉬움'
+          : song.level === 'advanced'
+          ? '어려움'
+          : '보통'
+        : activeTab === '전체'
         ? song.level === 'beginner'
           ? '쉬움'
           : song.level === 'advanced'
@@ -499,7 +522,13 @@ export const SongSelectScreen: React.FC<SongSelectScreenProps> = ({
               const isPreviewing = previewSongId === song.id;
 
               const songDifficulty: '쉬움' | '보통' | '어려움' | '찬송가' =
-                activeTab === '전체'
+                activeTab === '화음연습'
+                  ? song.level === 'beginner'
+                    ? '쉬움'
+                    : song.level === 'advanced'
+                    ? '어려움'
+                    : '보통'
+                  : activeTab === '전체'
                   ? song.level === 'beginner'
                     ? '쉬움'
                     : song.level === 'advanced'

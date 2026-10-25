@@ -5,6 +5,7 @@
 
 import { HitRating, ComboStats, JudgeConfig, DEFAULT_JUDGE_CONFIG } from '../types/comboTypes';
 import { TimedNoteItem } from './musicTiming';
+import { ChordGroupItem, ChordHitRating, ChordJudgeResult } from '../types/chordTypes';
 
 export interface NoteJudgeState {
   id: string;
@@ -12,10 +13,26 @@ export interface NoteJudgeState {
   rating: HitRating;
 }
 
+export interface ChordGroupState {
+  chordId: string;
+  totalNotes: number;
+  hitNoteIds: Set<string>;
+  ratings: HitRating[];
+  isCompleted: boolean;
+}
+
 export class RhythmJudgeManager {
   private config: JudgeConfig;
   private comboStats: ComboStats;
   private judgedNotes: Map<string, NoteJudgeState> = new Map();
+  // STEP 03-A: 화음 그룹 상태 관리
+  private chordStates: Map<string, ChordGroupState> = new Map();
+  private chordStats = {
+    totalChords: 0,
+    perfectChords: 0,
+    partialChords: 0,
+    missedChords: 0,
+  };
 
   constructor(totalNotes: number, config: JudgeConfig = DEFAULT_JUDGE_CONFIG) {
     this.config = config;
@@ -31,8 +48,26 @@ export class RhythmJudgeManager {
     };
   }
 
-  public reset(totalNotes: number): void {
+  public reset(totalNotes: number, chordGroups: ChordGroupItem[] = []): void {
     this.judgedNotes.clear();
+    this.chordStates.clear();
+    this.chordStats = {
+      totalChords: chordGroups.length,
+      perfectChords: 0,
+      partialChords: 0,
+      missedChords: 0,
+    };
+
+    chordGroups.forEach((group) => {
+      this.chordStates.set(group.chordId, {
+        chordId: group.chordId,
+        totalNotes: group.notes.length,
+        hitNoteIds: new Set(),
+        ratings: [],
+        isCompleted: false,
+      });
+    });
+
     this.comboStats = {
       currentCombo: 0,
       maxCombo: 0,
@@ -60,12 +95,14 @@ export class RhythmJudgeManager {
     tempoBpm: number,
     speedMultiplier: number,
     candidates: TimedNoteItem[]
-  ): { rating: HitRating; targetNoteId?: string; combo: number } {
+  ): { rating: HitRating; targetNoteId?: string; combo: number; chordResult?: ChordJudgeResult } {
     const msPerBeat = ((60 / tempoBpm) * (1 / speedMultiplier)) * 1000;
 
-    // 아직 판정되지 않은 유효 음표 후보 중 시간차가 가장 작은 음표 검색
+    // STEP 03-A: 화음 지원 후보 검색 알고리즘
+    // 윈도우 내에 존재하는 미판정 음표 중, 사용자가 누른 keyIndex와 일치하는 음표를 최우선 선택
     let bestCandidate: TimedNoteItem | null = null;
     let minTimeDiffMs = Infinity;
+    let foundExactKey = false;
 
     for (const note of candidates) {
       if (note.isRest || note.pitch === 'REST') continue;
@@ -73,12 +110,23 @@ export class RhythmJudgeManager {
 
       const beatDiff = currentBeat - note.beatTime;
       const timeDiffMs = beatDiff * msPerBeat;
+      const absDiff = Math.abs(timeDiffMs);
 
-      // 판정 허용 범위 (앞뒤 ±300ms 내)
-      if (Math.abs(timeDiffMs) <= this.config.greatWindowMs + 100) {
-        if (Math.abs(timeDiffMs) < Math.abs(minTimeDiffMs)) {
-          minTimeDiffMs = timeDiffMs;
-          bestCandidate = note;
+      // 판정 허용 범위 내
+      if (absDiff <= this.config.greatWindowMs + 100) {
+        const isMatchKey = note.keyIndex === keyIndex;
+
+        if (isMatchKey) {
+          if (!foundExactKey || absDiff < Math.abs(minTimeDiffMs)) {
+            foundExactKey = true;
+            minTimeDiffMs = timeDiffMs;
+            bestCandidate = note;
+          }
+        } else if (!foundExactKey) {
+          if (absDiff < Math.abs(minTimeDiffMs)) {
+            minTimeDiffMs = timeDiffMs;
+            bestCandidate = note;
+          }
         }
       }
     }
@@ -115,10 +163,43 @@ export class RhythmJudgeManager {
 
     this.applyRating(rating);
 
+    // STEP 03-A: 화음 그룹 완주 추적
+    let chordResult: ChordJudgeResult | undefined = undefined;
+    if (bestCandidate.chordId && this.chordStates.has(bestCandidate.chordId)) {
+      const chordState = this.chordStates.get(bestCandidate.chordId)!;
+      if (rating !== 'MISS') {
+        chordState.hitNoteIds.add(bestCandidate.id);
+        chordState.ratings.push(rating);
+      }
+
+      // 화음 내 모든 음표가 타격되었는지 확인
+      if (!chordState.isCompleted && chordState.hitNoteIds.size === chordState.totalNotes) {
+        chordState.isCompleted = true;
+        const allPerfect = chordState.ratings.every((r) => r === 'PERFECT');
+        const chordRating: ChordHitRating = allPerfect ? 'CHORD_PERFECT' : 'CHORD_GREAT';
+
+        if (allPerfect) {
+          this.chordStats.perfectChords++;
+        } else {
+          this.chordStats.partialChords++;
+        }
+
+        chordResult = {
+          chordId: chordState.chordId,
+          rating: chordRating,
+          hitCount: chordState.hitNoteIds.size,
+          totalNotes: chordState.totalNotes,
+          scoreBonus: allPerfect ? 200 : 120,
+          message: allPerfect ? '🎉 완벽한 화음!' : '👏 멋진 화음!',
+        };
+      }
+    }
+
     return {
       rating,
       targetNoteId: bestCandidate.id,
       combo: this.comboStats.currentCombo,
+      chordResult,
     };
   }
 
@@ -187,6 +268,10 @@ export class RhythmJudgeManager {
 
   public getStats(): ComboStats {
     return { ...this.comboStats };
+  }
+
+  public getChordStats() {
+    return { ...this.chordStats };
   }
 
   public isNoteJudged(noteId: string): boolean {

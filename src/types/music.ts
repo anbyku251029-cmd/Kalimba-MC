@@ -13,6 +13,10 @@ export interface KalimbaNote {
   hand: KalimbaHand;
   tineIndex: number; // 0 to 16 matching 17-key kalimba physical layout
   lyric?: string;
+  // STEP 03-A: 화음 및 양손 연주 고도화 확장 필드
+  chordId?: string; // 동일 시점 화음 그룹 식별자
+  isSimultaneousWithPrevious?: boolean; // 이전 음표와 동시에 시작되는 화음 구성음 여부
+  chordPitches?: string[]; // 해당 화음에 포함된 전체 구성음 목록
 }
 
 export interface Song {
